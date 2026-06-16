@@ -20,9 +20,11 @@ Tailwind** (frontend, installable as a **PWA**).
   routed by [`backend/tenants/routers.py`](backend/tenants/routers.py), and resolved
   per request from the `X-Tenant-Slug` header by
   [`backend/tenants/middleware.py`](backend/tenants/middleware.py).
-- **Cloudflare R2** (S3-compatible) stores media and the durable copies of tenant
-  `.db` files. **Without R2 credentials the app falls back to local disk** — it runs
-  out of the box. Add credentials to `backend/.env` to enable R2.
+- **Cloudflare R2** (S3-compatible) stores data in **two separate buckets**:
+  `R2_DB_BUCKET` for the tenant `.db` files (private) and `R2_MEDIA_BUCKET` for
+  uploaded media. **Without R2 credentials the app falls back to local disk** — it
+  runs out of the box. Add credentials + both bucket names to `backend/.env` to
+  enable R2.
 
 ### Tenant DB lifecycle (per request)
 1. Middleware reads `X-Tenant-Slug` → `ensure_tenant_db(slug)`: acquire per-tenant

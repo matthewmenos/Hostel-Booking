@@ -187,17 +187,30 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 # R2 configuration (consumed by core/storage.py + core/r2_client.py).
+# Credentials and the account endpoint are shared, but the DB files and media
+# live in SEPARATE buckets so their lifecycles/permissions can differ
+# (e.g. media may be public-read; tenant .db files stay private).
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "")
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
 R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "")
 
-# R2 is "enabled" only when the essential credentials are all present.
+# Dedicated buckets. R2_DB_BUCKET holds the per-tenant SQLite .db files;
+# R2_MEDIA_BUCKET holds uploaded media (hostel images, verification photos).
+R2_DB_BUCKET = os.getenv("R2_DB_BUCKET", "")
+R2_MEDIA_BUCKET = os.getenv("R2_MEDIA_BUCKET", "")
+
+# R2 is "enabled" only when credentials, endpoint, and BOTH buckets are set.
 R2_ENABLED = all(
-    [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_ENDPOINT_URL]
+    [
+        R2_ACCESS_KEY_ID,
+        R2_SECRET_ACCESS_KEY,
+        R2_ENDPOINT_URL,
+        R2_DB_BUCKET,
+        R2_MEDIA_BUCKET,
+    ]
 )
-# Key prefix under which tenant .db files are stored in the bucket.
+# Key prefix under which tenant .db files are stored within the DB bucket.
 R2_DB_PREFIX = "tenant-databases"
 
 if R2_ENABLED:

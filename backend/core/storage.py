@@ -16,7 +16,7 @@ from storages.backends.s3boto3 import S3Boto3Storage
 class R2MediaStorage(S3Boto3Storage):
     """django-storages S3 backend configured for Cloudflare R2."""
 
-    bucket_name = settings.R2_BUCKET_NAME
+    bucket_name = settings.R2_MEDIA_BUCKET
     endpoint_url = settings.R2_ENDPOINT_URL
     access_key = settings.R2_ACCESS_KEY_ID
     secret_key = settings.R2_SECRET_ACCESS_KEY

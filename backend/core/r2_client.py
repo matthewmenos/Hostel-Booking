@@ -2,8 +2,11 @@
 Cloudflare R2 client wrapper.
 
 R2 exposes an S3-compatible API, so we use ``boto3`` against the R2 endpoint.
-This module is intentionally thin and defensive: every network operation is
-wrapped so that R2 outages degrade gracefully rather than crashing requests.
+This module manages the per-tenant SQLite ``.db`` files, which live in their
+own dedicated bucket (``settings.R2_DB_BUCKET``) — separate from the media
+bucket used by ``core.storage``. It is intentionally thin and defensive: every
+network operation is wrapped so that R2 outages degrade gracefully rather than
+crashing requests.
 
 Two failure philosophies are applied:
 
@@ -84,7 +87,7 @@ def object_exists(key: str) -> bool:
     if client is None:
         return False
     try:
-        client.head_object(Bucket=settings.R2_BUCKET_NAME, Key=key)
+        client.head_object(Bucket=settings.R2_DB_BUCKET, Key=key)
         return True
     except Exception as exc:  # botocore ClientError (404) or network failure
         # A 404 is the normal "no backup yet" case; anything else is logged.
@@ -106,7 +109,7 @@ def download_db(key: str, local_path: str) -> bool:
     if client is None:
         return False
     try:
-        client.download_file(settings.R2_BUCKET_NAME, key, local_path)
+        client.download_file(settings.R2_DB_BUCKET, key, local_path)
         logger.info("Pulled tenant DB from R2: %s", key)
         return True
     except Exception as exc:
@@ -125,7 +128,7 @@ def upload_db(local_path: str, key: str) -> None:
     if client is None:
         return
     try:
-        client.upload_file(local_path, settings.R2_BUCKET_NAME, key)
+        client.upload_file(local_path, settings.R2_DB_BUCKET, key)
         logger.info("Synced tenant DB to R2: %s", key)
     except Exception as exc:
         logger.error("R2 upload failed for %s -> %s: %s", local_path, key, exc)

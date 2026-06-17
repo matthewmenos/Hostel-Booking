@@ -173,6 +173,10 @@ def ensure_tenant_db(slug: str) -> str:
 
         if needs_schema:
             _migrate_tenant(alias)
+            # Mark dirty so sync_tenant_db uploads the freshly-migrated schema
+            # to R2 on this same request — without this the new file never reaches
+            # R2 and would be re-created (empty) on every restart.
+            mark_dirty(slug)
 
         return alias
     except Exception:

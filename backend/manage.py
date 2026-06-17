@@ -2,11 +2,6 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
-from pathlib import Path
-
-# The Django code lives in ``backend/`` while this entrypoint sits at the repo
-# root. Put ``backend/`` on the import path so ``config.settings`` resolves.
-sys.path.insert(0, str(Path(__file__).resolve().parent / "backend"))
 
 
 def main():

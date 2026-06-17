@@ -81,6 +81,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -188,7 +189,15 @@ USE_TZ = True
 
 
 # --- Static & Media ---------------------------------------------------------
+# The React build output lives one level up from backend/ in frontend/dist/.
+FRONTEND_DIR = BASE_DIR.parent / "frontend" / "dist"
+
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+# Whitenoise serves the React app's assets from the dist/assets folder.
+STATICFILES_DIRS = [FRONTEND_DIR / "assets"] if (FRONTEND_DIR / "assets").exists() else []
+
+WHITENOISE_ROOT = FRONTEND_DIR  # serve index.html + sw.js etc. from root
 
 # R2 configuration (consumed by core/storage.py + core/r2_client.py).
 # Credentials and the account endpoint are shared, but the DB files and media

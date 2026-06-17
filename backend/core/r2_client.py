@@ -89,12 +89,16 @@ def object_exists(key: str) -> bool:
     try:
         client.head_object(Bucket=settings.R2_DB_BUCKET, Key=key)
         return True
-    except Exception as exc:  # botocore ClientError (404) or network failure
-        # A 404 is the normal "no backup yet" case; anything else is logged.
-        status = getattr(getattr(exc, "response", {}), "get", lambda *_: None)(
-            "ResponseMetadata", {}
+    except Exception as exc:
+        # botocore ClientError carries a .response dict; a 404 is the normal
+        # "no backup yet" case and should not be logged as a warning.
+        response = getattr(exc, "response", None)
+        http_status = (
+            response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if isinstance(response, dict)
+            else None
         )
-        if not (isinstance(status, dict) and status.get("HTTPStatusCode") == 404):
+        if http_status != 404:
             logger.warning("R2 head_object failed for %s: %s", key, exc)
         return False
 

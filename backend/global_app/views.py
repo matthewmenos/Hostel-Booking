@@ -128,44 +128,49 @@ class CreateBookingView(generics.GenericAPIView):
         return TenantHostel.objects.filter(slug=slug, is_active=True).first()
 
     def _reserve(self, request, hostel, data, BedSpace):
-        bed = (
-            BedSpace.objects.select_related("room")
-            .filter(pk=data["bed_space_id"])
-            .first()
-        )
-        if bed is None:
-            return Response({"detail": "Bed space not found."}, status=404)
-        if bed.is_occupied:
-            return Response(
-                {"detail": "That bed space is already taken."},
-                status=status.HTTP_409_CONFLICT,
-            )
-
         provider = data["provider"]
+        tenant_alias = tenant_manager.tenant_db_alias(hostel.slug)
 
-        # The authoritative records (booking + payment) are written atomically
-        # to the GLOBAL database. The tenant bed flag is updated alongside; if
-        # the global transaction fails, we roll back the bed too.
-        with transaction.atomic(using="default"):
-            booking = GlobalBooking.objects.create(
-                student=request.user,
-                hostel=hostel,
-                room_type=bed.room.room_type,
-                bed_space_ref=bed.pk,
-                amount=hostel.base_price,
-                expiry_timestamp=timezone.now() + RESERVATION_TTL,
+        # Lock the bed row first so two concurrent requests cannot both pass the
+        # is_occupied check before either one commits (TOCTOU double-booking).
+        with transaction.atomic(using=tenant_alias):
+            bed = (
+                BedSpace.objects.using(tenant_alias)
+                .select_related("room")
+                .select_for_update()
+                .filter(pk=data["bed_space_id"])
+                .first()
             )
-            payment = Payment.objects.create(
-                booking=booking,
-                provider=provider,
-                amount=hostel.base_price,
-            )
+            if bed is None:
+                return Response({"detail": "Bed space not found."}, status=404)
+            if bed.is_occupied:
+                return Response(
+                    {"detail": "That bed space is already taken."},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-            # Mark the physical bed occupied in the tenant DB.
+            # Write the authoritative booking + payment to the global DB, then
+            # flag the bed occupied in the tenant DB — all within the same scope
+            # so a global-DB failure still rolls back the bed lock.
+            with transaction.atomic(using="default"):
+                booking = GlobalBooking.objects.create(
+                    student=request.user,
+                    hostel=hostel,
+                    room_type=bed.room.room_type,
+                    bed_space_ref=bed.pk,
+                    amount=hostel.base_price,
+                    expiry_timestamp=timezone.now() + RESERVATION_TTL,
+                )
+                payment = Payment.objects.create(
+                    booking=booking,
+                    provider=provider,
+                    amount=hostel.base_price,
+                )
+
             bed.is_occupied = True
             bed.occupant_ref = request.user.id
             bed.booking_ref = booking.pk
-            bed.save(using=tenant_manager.tenant_db_alias(hostel.slug))
+            bed.save(using=tenant_alias)
             tenant_manager.mark_dirty(hostel.slug)
 
         gateway_response = payment_gateway.initiate_payment(payment)

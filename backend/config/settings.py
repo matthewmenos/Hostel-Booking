@@ -48,6 +48,10 @@ def env_list(key: str, default: str = "") -> list[str]:
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-change-me")
 DEBUG = env_bool("DJANGO_DEBUG", True)
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Render injects RENDER_EXTERNAL_HOSTNAME automatically on deployed services.
+_render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+if _render_host:
+    ALLOWED_HOSTS.append(_render_host)
 
 # Local directory holding the runtime SQLite files and (in fallback mode) media.
 DATA_DIR = BASE_DIR / "data"

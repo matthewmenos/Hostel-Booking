@@ -170,6 +170,7 @@ function HostelsTab() {
 // ── Bookings tab ──────────────────────────────────────────────────────────────
 
 function BookingsTab() {
+  const { addToast } = useToast();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
@@ -182,6 +183,16 @@ function BookingsTab() {
   };
 
   useEffect(() => { load(statusFilter); }, [statusFilter]);
+
+  const refund = async (id) => {
+    try {
+      const { data } = await adminApi.refundBooking(id);
+      setBookings((prev) => prev.map((b) => b.id === id ? data : b));
+      addToast("success", "Booking marked as refunded.");
+    } catch (err) {
+      addToast("error", err.response?.data?.detail ?? "Could not refund booking.");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -216,9 +227,18 @@ function BookingsTab() {
                   {new Date(b.created_at).toLocaleDateString("en-GH", { day:"numeric", month:"short", year:"numeric" })}
                 </p>
               </div>
-              <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>
-                <Icon size={16}/> {ui.label}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>
+                  <Icon size={16}/> {ui.label}
+                </span>
+                {b.payment_status === "paid" && (
+                  <button
+                    onClick={() => refund(b.id)}
+                    className="rounded-lg border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
+                    Refund
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

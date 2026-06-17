@@ -43,4 +43,5 @@ export const adminApi = {
   activateHostel:    (slug) => api.post(`/admin/hostels/${slug}/activate/`),
   deactivateHostel:  (slug) => api.post(`/admin/hostels/${slug}/deactivate/`),
   bookings:          (params) => api.get("/admin/bookings/", { params }),
+  refundBooking:     (id) => api.post(`/admin/bookings/${id}/refund/`),
 };

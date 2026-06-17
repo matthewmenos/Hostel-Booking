@@ -322,3 +322,20 @@ class AdminBookingsView(generics.ListAPIView):
         return GlobalBooking.objects.all().select_related(
             "hostel", "student"
         ).prefetch_related("payments")
+
+
+class AdminRefundBookingView(generics.GenericAPIView):
+    """Mark a paid booking as refunded — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk):
+        booking = get_object_or_404(GlobalBooking, pk=pk)
+        if booking.payment_status != PaymentStatus.PAID:
+            return Response(
+                {"detail": "Only paid bookings can be marked refunded."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        booking.payment_status = PaymentStatus.REFUNDED
+        booking.save(update_fields=["payment_status"])
+        return Response(GlobalBookingSerializer(booking).data)

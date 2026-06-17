@@ -5,6 +5,7 @@ import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
+import ErrorPage from "./ErrorPage.jsx";
 
 export default function HostelDetailPage() {
   const { slug } = useParams();
@@ -14,6 +15,7 @@ export default function HostelDetailPage() {
 
   const [hostel, setHostel] = useState(null);
   const [rooms, setRooms] = useState([]);
+  const [roomFilter, setRoomFilter] = useState("all");
   const [status, setStatus] = useState({ loading: true, error: null, booking: null });
 
   useEffect(() => {
@@ -59,7 +61,17 @@ export default function HostelDetailPage() {
       </div>
     </div>
   );
-  if (status.error) return <p className="text-red-600">{status.error}</p>;
+  if (status.error) return (
+    <ErrorPage
+      message={status.error}
+      onRetry={() => {
+        setStatus({ loading: true, error: null, booking: null });
+        Promise.all([hostelApi.get(slug), tenantApi.rooms(slug)])
+          .then(([h, r]) => { setHostel(h.data); setRooms(r.data.results ?? r.data); setStatus({ loading: false, error: null, booking: null }); })
+          .catch(() => setStatus({ loading: false, error: "Could not load this hostel.", booking: null }));
+      }}
+    />
+  );
   if (!hostel) return null;
 
   return (
@@ -92,9 +104,38 @@ export default function HostelDetailPage() {
         </div>
       )}
 
-      <h2 className="text-lg font-semibold">Rooms &amp; availability</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold">Rooms &amp; availability</h2>
+        {(() => {
+          const types = [...new Set(rooms.map((r) => r.room_type))];
+          if (types.length < 2) return null;
+          return (
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => setRoomFilter("all")}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition
+                  ${roomFilter === "all" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                All
+              </button>
+              {types.map((t) => (
+                <button key={t}
+                  onClick={() => setRoomFilter(t)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition
+                    ${roomFilter === t ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  {t.replace(/_/g, " ")}
+                </button>
+              ))}
+              {roomFilter !== "all" && (
+                <span className="ml-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                  {rooms.filter((r) => r.room_type === roomFilter && r.beds.some((b) => !b.is_occupied)).length} with free beds
+                </span>
+              )}
+            </div>
+          );
+        })()}
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
-        {rooms.map((room) => (
+        {rooms.filter((r) => roomFilter === "all" || r.room_type === roomFilter).map((room) => (
           <div key={room.id} className="card p-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">
@@ -128,7 +169,11 @@ export default function HostelDetailPage() {
             </div>
           </div>
         ))}
-        {rooms.length === 0 && <p className="text-gray-500">No rooms listed yet.</p>}
+        {rooms.filter((r) => roomFilter === "all" || r.room_type === roomFilter).length === 0 && (
+          <p className="text-gray-500 col-span-2">
+            {rooms.length === 0 ? "No rooms listed yet." : "No rooms match this filter."}
+          </p>
+        )}
       </div>
     </div>
   );

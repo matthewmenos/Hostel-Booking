@@ -9,6 +9,7 @@ import StudentDashboard from "./pages/StudentDashboard.jsx";
 import ManagerPortal from "./pages/ManagerPortal.jsx";
 import NewHostelPage from "./pages/NewHostelPage.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
+import NotFoundPage from "./pages/NotFoundPage.jsx";
 
 export default function App() {
   return (
@@ -52,7 +53,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<p className="text-center text-gray-500">Page not found.</p>} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>

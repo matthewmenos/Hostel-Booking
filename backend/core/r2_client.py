@@ -137,3 +137,54 @@ def upload_db(local_path: str, key: str) -> None:
     except Exception as exc:
         logger.error("R2 upload failed for %s -> %s: %s", local_path, key, exc)
         raise R2SyncError(f"Failed to sync {key} to R2: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Global DB (global_system.db) — same bucket, distinct key prefix.
+# ---------------------------------------------------------------------------
+
+GLOBAL_DB_KEY = "global/global_system.db"
+
+
+def upload_global_db(local_path: str) -> None:
+    """Upload the global DB to R2.
+
+    Same failure semantics as ``upload_db``: raises ``R2SyncError`` so the
+    caller (middleware) can log and continue without crashing the request.
+    No-op when R2 is not configured.
+    """
+    client = _get_client()
+    if client is None:
+        return
+    try:
+        client.upload_file(local_path, settings.R2_DB_BUCKET, GLOBAL_DB_KEY)
+        logger.info("Synced global DB to R2: %s", GLOBAL_DB_KEY)
+    except Exception as exc:
+        logger.error("R2 upload failed for global DB: %s", exc)
+        raise R2SyncError(f"Failed to sync global DB to R2: {exc}") from exc
+
+
+def download_global_db(local_path: str) -> bool:
+    """Download the global DB from R2 to ``local_path``.
+
+    Returns True on success, False if the object is missing or R2 is
+    unreachable (caller should then let Django create a fresh empty schema).
+    No-op (returns False) when R2 is not configured.
+    """
+    client = _get_client()
+    if client is None:
+        return False
+    try:
+        client.download_file(settings.R2_DB_BUCKET, GLOBAL_DB_KEY, local_path)
+        logger.info("Restored global DB from R2: %s -> %s", GLOBAL_DB_KEY, local_path)
+        return True
+    except Exception as exc:
+        response = getattr(exc, "response", None)
+        http_status = (
+            response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if isinstance(response, dict)
+            else None
+        )
+        if http_status != 404:
+            logger.warning("R2 download failed for global DB: %s", exc)
+        return False

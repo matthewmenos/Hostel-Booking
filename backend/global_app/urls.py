@@ -15,6 +15,7 @@ from .views import (
     AdminHostelActivateView,
     AdminHostelDeactivateView,
     AdminBookingsView,
+    AdminRefundBookingView,
 )
 
 router = DefaultRouter()
@@ -34,5 +35,6 @@ urlpatterns = [
     path("admin/hostels/<slug:slug>/activate/", AdminHostelActivateView.as_view(), name="admin-hostel-activate"),
     path("admin/hostels/<slug:slug>/deactivate/", AdminHostelDeactivateView.as_view(), name="admin-hostel-deactivate"),
     path("admin/bookings/", AdminBookingsView.as_view(), name="admin-bookings"),
+    path("admin/bookings/<int:pk>/refund/", AdminRefundBookingView.as_view(), name="admin-booking-refund"),
     path("", include(router.urls)),
 ]

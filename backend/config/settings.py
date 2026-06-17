@@ -88,6 +88,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Uploads global_system.db to R2 after every state-changing request so it
+    # survives an ephemeral filesystem restart (e.g. on Render).
+    "global_app.middleware.GlobalDbSyncMiddleware",
     # Resolves the active tenant and syncs its .db back to R2 on response.
     # Placed last so it wraps the full request/response cycle.
     "tenants.middleware.TenantMiddleware",
@@ -118,6 +121,8 @@ ASGI_APPLICATION = "config.asgi.application"
 # Only ``default`` (the global DB) is declared statically. Per-tenant
 # connections are added to ``connections.databases`` at runtime by
 # ``tenants.tenant_manager.ensure_tenant_db``.
+# Persistence on ephemeral hosts (e.g. Render) is handled by
+# GlobalDbSyncMiddleware + GlobalAppConfig.ready() via Cloudflare R2.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -241,6 +246,24 @@ else:
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# --- Email ------------------------------------------------------------------
+# Set EMAIL_HOST / EMAIL_PORT / EMAIL_HOST_USER / EMAIL_HOST_PASSWORD in .env
+# to use a real SMTP provider (e.g. Resend, Mailgun, Gmail).
+# Falls back to the console backend in development so no emails are sent.
+_email_host = os.getenv("EMAIL_HOST", "")
+if _email_host:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = _email_host
+    EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+    EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "HostelHub Ghana <noreply@hostelhub.gh>")
 
 
 # --- Logging (surface R2 transfer issues clearly) ---------------------------

@@ -10,7 +10,9 @@ cd ..
 # 2. Install Python dependencies.
 pip install -r backend/requirements.txt
 
-# 3. Collect Django static files (whitenoise needs them in staticfiles/).
+# 3. Restore global DB from R2 (if wiped by Render's ephemeral filesystem),
+#    then apply any pending migrations, then collect static files.
 cd backend
-python manage.py collectstatic --noinput
+python manage.py restore_global_db
 python manage.py migrate --noinput
+python manage.py collectstatic --noinput

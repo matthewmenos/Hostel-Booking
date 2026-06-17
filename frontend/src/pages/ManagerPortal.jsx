@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2, Megaphone, BookOpen } from "lucide-react";
+import { Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2, Megaphone, BookOpen, Pencil, X } from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonStatCard, SkeletonBookingRow } from "../components/Skeleton.jsx";
@@ -84,11 +84,14 @@ export default function ManagerPortal() {
 
       {/* Tab content */}
       {tab === "overview" && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard icon={Building2} label="Hostels" value={hostels.length} />
-          <StatCard icon={BedDouble} label="Beds" value={`${occupancy.taken}/${occupancy.total}`} />
-          <StatCard icon={Percent} label="Occupancy" value={`${occupancy.pct}%`} />
-        </div>
+        <OverviewTab
+          hostels={hostels}
+          occupancy={occupancy}
+          activeHostel={hostels.find((h) => h.slug === active)}
+          onHostelUpdated={(updated) =>
+            setHostels((prev) => prev.map((h) => h.slug === updated.slug ? updated : h))
+          }
+        />
       )}
 
       {tab === "rooms" && (
@@ -101,6 +104,135 @@ export default function ManagerPortal() {
 
       {tab === "bookings" && (
         <BookingsTab slug={active} hostels={hostels} />
+      )}
+    </div>
+  );
+}
+
+const CAMPUS_OPTIONS = [
+  { value: "KNUST", label: "KNUST (Kumasi)" },
+  { value: "LEGON", label: "University of Ghana, Legon" },
+  { value: "UCC",   label: "University of Cape Coast" },
+  { value: "UPSA",  label: "University of Professional Studies" },
+  { value: "OTHER", label: "Other" },
+];
+
+function OverviewTab({ hostels, occupancy, activeHostel, onHostelUpdated }) {
+  const { addToast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  const startEdit = () => {
+    if (!activeHostel) return;
+    setForm({
+      name:           activeHostel.name,
+      campus:         activeHostel.campus,
+      location:       activeHostel.location,
+      base_price:     activeHostel.base_price,
+      total_capacity: activeHostel.total_capacity,
+      description:    activeHostel.description ?? "",
+    });
+    setErrors({});
+    setEditing(true);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setErrors({});
+    try {
+      const { data } = await hostelApi.update(activeHostel.slug, form);
+      onHostelUpdated(data);
+      addToast("success", "Hostel updated.");
+      setEditing(false);
+    } catch (err) {
+      const d = err.response?.data ?? {};
+      if (typeof d === "object") setErrors(d);
+      addToast("error", d.detail ?? "Could not update hostel.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard icon={Building2} label="Hostels" value={hostels.length} />
+        <StatCard icon={BedDouble} label="Beds" value={`${occupancy.taken}/${occupancy.total}`} />
+        <StatCard icon={Percent} label="Occupancy" value={`${occupancy.pct}%`} />
+      </div>
+
+      {activeHostel && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-lg">{activeHostel.name}</h2>
+            {!editing ? (
+              <button onClick={startEdit} className="btn-ghost flex items-center gap-1 px-3 py-1.5 text-sm">
+                <Pencil size={14}/> Edit hostel
+              </button>
+            ) : (
+              <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={18}/>
+              </button>
+            )}
+          </div>
+
+          {!editing ? (
+            <div className="text-sm text-gray-500 space-y-1">
+              <p>{activeHostel.campus_display} · {activeHostel.location}</p>
+              <p>GHS {activeHostel.base_price}/bed · Capacity: {activeHostel.total_capacity}</p>
+              {activeHostel.description && <p className="text-gray-600">{activeHostel.description}</p>}
+            </div>
+          ) : (
+            <form onSubmit={submit} className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label">Hostel name</label>
+                  <input className="input" value={form.name}
+                    onChange={(e) => setForm({...form, name: e.target.value})} required />
+                  {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
+                </div>
+                <div>
+                  <label className="label">Campus</label>
+                  <select className="input" value={form.campus}
+                    onChange={(e) => setForm({...form, campus: e.target.value})}>
+                    {CAMPUS_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Location / area</label>
+                  <input className="input" value={form.location}
+                    onChange={(e) => setForm({...form, location: e.target.value})} required />
+                  {errors.location && <p className="mt-1 text-xs text-red-600">{errors.location}</p>}
+                </div>
+                <div>
+                  <label className="label">Base price (GHS)</label>
+                  <input className="input" type="number" min="0" step="0.01" value={form.base_price}
+                    onChange={(e) => setForm({...form, base_price: e.target.value})} required />
+                  {errors.base_price && <p className="mt-1 text-xs text-red-600">{errors.base_price}</p>}
+                </div>
+                <div>
+                  <label className="label">Total capacity</label>
+                  <input className="input" type="number" min="0" value={form.total_capacity}
+                    onChange={(e) => setForm({...form, total_capacity: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <textarea rows={3} className="input resize-none" value={form.description}
+                  onChange={(e) => setForm({...form, description: e.target.value})} />
+              </div>
+              <div className="flex gap-2">
+                <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
+                <button type="button" className="btn-ghost px-4 py-2" onClick={() => setEditing(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
       )}
     </div>
   );

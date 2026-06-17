@@ -111,6 +111,8 @@ class Payment(models.Model):
     )
     # Gateway transaction reference (filled in by the gateway integration).
     reference = models.CharField(max_length=100, blank=True, db_index=True)
+    # Authorization URL returned by the gateway for the customer to complete payment.
+    authorization_url = models.URLField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

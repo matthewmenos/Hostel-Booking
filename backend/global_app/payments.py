@@ -36,11 +36,12 @@ def _stub_reference(prefix: str) -> str:
 def _initiate_paystack(payment: Payment) -> dict:
     # TODO: POST https://api.paystack.co/transaction/initialize with secret key.
     payment.reference = _stub_reference("psk")
-    payment.save(update_fields=["reference"])
+    payment.authorization_url = f"https://checkout.paystack.com/stub/{payment.reference}"
+    payment.save(update_fields=["reference", "authorization_url"])
     return {
         "provider": "paystack",
         "reference": payment.reference,
-        "authorization_url": f"https://checkout.paystack.com/stub/{payment.reference}",
+        "authorization_url": payment.authorization_url,
         "stub": True,
     }
 
@@ -48,16 +49,18 @@ def _initiate_paystack(payment: Payment) -> dict:
 def _initiate_hubtel(payment: Payment) -> dict:
     # TODO: call Hubtel's checkout API.
     payment.reference = _stub_reference("hub")
-    payment.save(update_fields=["reference"])
+    payment.authorization_url = f"https://pay.hubtel.com/stub/{payment.reference}"
+    payment.save(update_fields=["reference", "authorization_url"])
     return {
         "provider": "hubtel",
         "reference": payment.reference,
-        "authorization_url": f"https://pay.hubtel.com/stub/{payment.reference}",
+        "authorization_url": payment.authorization_url,
         "stub": True,
     }
 
 
 def _initiate_manual(payment: Payment) -> dict:
     payment.reference = _stub_reference("man")
-    payment.save(update_fields=["reference"])
+    payment.authorization_url = ""
+    payment.save(update_fields=["reference", "authorization_url"])
     return {"provider": "manual", "reference": payment.reference, "stub": True}

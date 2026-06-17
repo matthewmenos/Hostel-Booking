@@ -1,4 +1,5 @@
 """Serializers for hostels, bookings, and payments (global DB)."""
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import TenantHostel, GlobalBooking, Payment
@@ -7,13 +8,15 @@ from .models import TenantHostel, GlobalBooking, Payment
 class TenantHostelSerializer(serializers.ModelSerializer):
     campus_display = serializers.CharField(source="get_campus_display", read_only=True)
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
+    booking_count = serializers.IntegerField(source="bookings.count", read_only=True)
 
     class Meta:
         model = TenantHostel
         fields = (
             "id", "name", "slug", "campus", "campus_display", "location",
             "total_capacity", "base_price", "description", "image",
-            "owner", "is_active", "created_at",
+            "owner", "owner_username", "booking_count", "is_active", "created_at",
         )
         read_only_fields = ("id", "owner", "created_at")
 
@@ -23,19 +26,20 @@ class PaymentSerializer(serializers.ModelSerializer):
         model = Payment
         fields = (
             "id", "booking", "provider", "amount", "status",
-            "reference", "created_at",
+            "reference", "authorization_url", "created_at",
         )
-        read_only_fields = ("id", "status", "reference", "created_at")
+        read_only_fields = ("id", "status", "reference", "authorization_url", "created_at")
 
 
 class GlobalBookingSerializer(serializers.ModelSerializer):
     payments = PaymentSerializer(many=True, read_only=True)
     hostel_name = serializers.CharField(source="hostel.name", read_only=True)
+    student_username = serializers.CharField(source="student.username", read_only=True)
 
     class Meta:
         model = GlobalBooking
         fields = (
-            "id", "student", "hostel", "hostel_name", "room_type",
+            "id", "student", "student_username", "hostel", "hostel_name", "room_type",
             "bed_space_ref", "amount", "payment_status",
             "expiry_timestamp", "created_at", "payments",
         )
@@ -55,3 +59,13 @@ class CreateBookingSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(
         choices=["paystack", "hubtel", "manual"], default="paystack"
     )
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = (
+            "id", "username", "email", "first_name", "last_name",
+            "role", "is_active", "phone", "university", "date_joined",
+        )
+        read_only_fields = ("id", "username", "email", "date_joined")

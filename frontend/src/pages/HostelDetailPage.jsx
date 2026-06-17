@@ -3,11 +3,14 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Wifi, Snowflake, Zap, BedDouble, MapPin } from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useToast } from "../context/ToastContext.jsx";
+import { Skeleton } from "../components/Skeleton.jsx";
 
 export default function HostelDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { isAuthed, user } = useAuth();
+  const { addToast } = useToast();
 
   const [hostel, setHostel] = useState(null);
   const [rooms, setRooms] = useState([]);
@@ -26,19 +29,36 @@ export default function HostelDetailPage() {
 
   const book = async (bedId) => {
     if (!isAuthed) return navigate("/login", { state: { from: { pathname: `/hostels/${slug}` } } });
-    if (user?.role !== "student") return alert("Only students can book beds.");
+    if (user?.role !== "student") {
+      addToast("info", "Only students can book beds.");
+      return;
+    }
     try {
       const { data } = await bookingApi.book({ hostel: slug, bed_space_id: bedId, provider: "paystack" });
       setStatus((s) => ({ ...s, booking: data }));
-      // Refresh availability.
+      addToast("success", "Bed reserved! Complete your payment in the dashboard.");
       const r = await tenantApi.rooms(slug);
       setRooms(r.data.results ?? r.data);
     } catch (e) {
-      alert(e.response?.data?.detail ?? "Booking failed.");
+      addToast("error", e.response?.data?.detail ?? "Booking failed.");
     }
   };
 
-  if (status.loading) return <p className="text-gray-500">Loading…</p>;
+  if (status.loading) return (
+    <div className="space-y-6">
+      <div className="card overflow-hidden">
+        <Skeleton className="h-48 w-full rounded-none" />
+        <div className="p-5 space-y-2">
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-5 w-1/4 mt-2" />
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {[1, 2].map((i) => <div key={i} className="card p-4 space-y-3"><Skeleton className="h-4 w-1/2" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-full" /></div>)}
+      </div>
+    </div>
+  );
   if (status.error) return <p className="text-red-600">{status.error}</p>;
   if (!hostel) return null;
 

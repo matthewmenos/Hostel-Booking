@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Search } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
+import { SkeletonCard } from "../components/Skeleton.jsx";
 
 const CAMPUSES = ["", "KNUST", "LEGON", "UCC", "UPSA", "OTHER"];
 
@@ -82,32 +83,38 @@ export default function SearchPage() {
         </div>
       </form>
 
-      {loading && <p className="text-gray-500">Loading hostels…</p>}
+      {loading && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      )}
       {error && <p className="text-red-600">{error}</p>}
       {!loading && !error && hostels.length === 0 && (
         <p className="text-gray-500">No hostels match your search yet.</p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {hostels.map((h) => (
-          <Link key={h.slug} to={`/hostels/${h.slug}`} className="card overflow-hidden hover:shadow-md">
-            <div className="flex h-32 items-center justify-center bg-brand/10 text-brand">
-              {h.image ? (
-                <img src={h.image} alt={h.name} className="h-full w-full object-cover" />
-              ) : (
-                <MapPin size={32} />
-              )}
-            </div>
-            <div className="p-4">
-              <h3 className="font-semibold">{h.name}</h3>
-              <p className="text-sm text-gray-500">
-                {h.campus_display} · {h.location}
-              </p>
-              <p className="mt-2 font-bold text-brand">GHS {h.base_price}</p>
-            </div>
-          </Link>
-        ))}
-      </div>
+      {!loading && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {hostels.map((h) => (
+            <Link key={h.slug} to={`/hostels/${h.slug}`} className="card overflow-hidden hover:shadow-md">
+              <div className="flex h-32 items-center justify-center bg-brand/10 text-brand">
+                {h.image ? (
+                  <img src={h.image} alt={h.name} className="h-full w-full object-cover" />
+                ) : (
+                  <MapPin size={32} />
+                )}
+              </div>
+              <div className="p-4">
+                <h3 className="font-semibold">{h.name}</h3>
+                <p className="text-sm text-gray-500">
+                  {h.campus_display} · {h.location}
+                </p>
+                <p className="mt-2 font-bold text-brand">GHS {h.base_price}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

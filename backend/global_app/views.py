@@ -9,7 +9,9 @@ side-effect (marking the physical bed occupied).
 """
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filters
 from rest_framework import viewsets, generics, status
@@ -19,17 +21,20 @@ from rest_framework.response import Response
 from tenants import tenant_manager
 from tenants.context import set_current_tenant, clear_current_tenant
 
-from .models import TenantHostel, GlobalBooking, Payment, PaymentProvider
+from .models import TenantHostel, GlobalBooking, Payment, PaymentProvider, PaymentStatus
 from .serializers import (
     TenantHostelSerializer,
     GlobalBookingSerializer,
     CreateBookingSerializer,
+    AdminUserSerializer,
 )
-from .permissions import IsManager, IsOwnerOrReadOnly
+from .permissions import IsManager, IsOwnerOrReadOnly, IsSuperAdmin
 from . import payments as payment_gateway
 
 # A pending reservation is held for this long before it may be expired.
 RESERVATION_TTL = timedelta(minutes=30)
+
+User = get_user_model()
 
 
 class HostelFilter(FilterSet):
@@ -83,7 +88,51 @@ class BookingViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return GlobalBooking.objects.filter(student=self.request.user)
+        return GlobalBooking.objects.filter(
+            student=self.request.user
+        ).prefetch_related("payments")
+
+
+class CancelBookingView(generics.GenericAPIView):
+    """Cancel a pending booking and free the reserved bed."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        booking = get_object_or_404(GlobalBooking, pk=pk, student=request.user)
+
+        if booking.payment_status != PaymentStatus.PENDING:
+            return Response(
+                {"detail": "Only pending bookings can be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Free the bed in the tenant DB, mirroring the CreateBookingView pattern.
+        if booking.bed_space_ref:
+            from tenants.models import BedSpace
+            alias = tenant_manager.ensure_tenant_db(booking.hostel.slug)
+            set_current_tenant(alias)
+            try:
+                with transaction.atomic(using=alias):
+                    bed = (
+                        BedSpace.objects.using(alias)
+                        .select_for_update()
+                        .filter(pk=booking.bed_space_ref)
+                        .first()
+                    )
+                    if bed:
+                        bed.is_occupied = False
+                        bed.occupant_ref = None
+                        bed.booking_ref = None
+                        bed.save(using=alias)
+                        tenant_manager.mark_dirty(booking.hostel.slug)
+            finally:
+                tenant_manager.sync_tenant_db(booking.hostel.slug)
+                clear_current_tenant()
+
+        booking.payment_status = PaymentStatus.EXPIRED
+        booking.save(update_fields=["payment_status"])
+        return Response(GlobalBookingSerializer(booking).data)
 
 
 class CreateBookingView(generics.GenericAPIView):
@@ -182,3 +231,94 @@ class CreateBookingView(generics.GenericAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+# ---------------------------------------------------------------------------
+# Manager views
+# ---------------------------------------------------------------------------
+
+class ManagerBookingsView(generics.ListAPIView):
+    """All bookings for hostels owned by the current manager."""
+
+    serializer_class = GlobalBookingSerializer
+    permission_classes = [IsManager]
+
+    def get_queryset(self):
+        qs = GlobalBooking.objects.filter(
+            hostel__owner=self.request.user
+        ).select_related("hostel", "student").prefetch_related("payments")
+        hostel_slug = self.request.query_params.get("hostel")
+        if hostel_slug:
+            qs = qs.filter(hostel__slug=hostel_slug)
+        return qs
+
+
+# ---------------------------------------------------------------------------
+# Superadmin views
+# ---------------------------------------------------------------------------
+
+class AdminUserListView(generics.ListAPIView):
+    """List all users — superadmin only."""
+
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsSuperAdmin]
+    queryset = User.objects.all().order_by("date_joined")
+
+
+class AdminUserUpdateView(generics.UpdateAPIView):
+    """Partial-update a user's role or active status — superadmin only."""
+
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsSuperAdmin]
+    queryset = User.objects.all()
+    http_method_names = ["patch"]
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+
+class AdminHostelListView(generics.ListAPIView):
+    """All hostels including inactive — superadmin only."""
+
+    serializer_class = TenantHostelSerializer
+    permission_classes = [IsSuperAdmin]
+    queryset = TenantHostel.objects.all().select_related("owner")
+
+
+class AdminHostelActivateView(generics.GenericAPIView):
+    """Reactivate a deactivated hostel."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, slug):
+        hostel = get_object_or_404(TenantHostel, slug=slug)
+        hostel.is_active = True
+        hostel.save(update_fields=["is_active"])
+        return Response(TenantHostelSerializer(hostel).data)
+
+
+class AdminHostelDeactivateView(generics.GenericAPIView):
+    """Deactivate a hostel (soft delete — hides from public listing)."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, slug):
+        hostel = get_object_or_404(TenantHostel, slug=slug)
+        hostel.is_active = False
+        hostel.save(update_fields=["is_active"])
+        return Response(TenantHostelSerializer(hostel).data)
+
+
+class AdminBookingsView(generics.ListAPIView):
+    """All bookings across the platform — superadmin only."""
+
+    serializer_class = GlobalBookingSerializer
+    permission_classes = [IsSuperAdmin]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["payment_status"]
+
+    def get_queryset(self):
+        return GlobalBooking.objects.all().select_related(
+            "hostel", "student"
+        ).prefetch_related("payments")

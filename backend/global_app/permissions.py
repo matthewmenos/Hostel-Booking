@@ -13,6 +13,17 @@ class IsManager(permissions.BasePermission):
         )
 
 
+class IsSuperAdmin(permissions.BasePermission):
+    """Allow only authenticated super-admins."""
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and getattr(request.user, "role", None) == "superadmin"
+        )
+
+
 class IsOwnerOrReadOnly(permissions.BasePermission):
     """Object-level: only the hostel's owner may modify it."""
 

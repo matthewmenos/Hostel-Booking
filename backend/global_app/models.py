@@ -218,3 +218,44 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment #{self.pk} — {self.get_provider_display()} [{self.status}]"
+
+
+class VerificationStatus(models.TextChoices):
+    PENDING  = "pending",  "Pending Review"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+
+
+class ManagerVerification(models.Model):
+    """One-time identity verification a manager must complete before listing hostels."""
+
+    manager   = models.OneToOneField(
+        settings.AUTH_USER_MODEL, related_name="verification", on_delete=models.CASCADE
+    )
+    # Nationality
+    nationality = models.CharField(max_length=80)
+    # Ghana Card images
+    id_front  = models.ImageField(upload_to="verifications/id/")
+    id_back   = models.ImageField(upload_to="verifications/id/")
+    # Selfie
+    selfie    = models.ImageField(upload_to="verifications/selfie/")
+    # Location
+    latitude  = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    address   = models.CharField(max_length=500)
+    # Paystack activation fee (GHS 5)
+    payment_ref       = models.CharField(max_length=100, blank=True)
+    payment_confirmed = models.BooleanField(default=False)
+    # Admin decision
+    status           = models.CharField(
+        max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.PENDING
+    )
+    rejection_reason = models.TextField(blank=True)
+    submitted_at     = models.DateTimeField(auto_now_add=True)
+    reviewed_at      = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-submitted_at",)
+
+    def __str__(self):
+        return f"Verification — {self.manager.username} [{self.status}]"

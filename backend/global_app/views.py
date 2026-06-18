@@ -31,13 +31,18 @@ from rest_framework.views import APIView
 from tenants import tenant_manager
 from tenants.context import set_current_tenant, clear_current_tenant
 
-from .models import TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus
+from .models import (
+    TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus,
+    ManagerVerification, VerificationStatus,
+)
 from .serializers import (
     TenantHostelSerializer,
     HostelImageSerializer,
     GlobalBookingSerializer,
     CreateBookingSerializer,
     AdminUserSerializer,
+    ManagerVerificationSerializer,
+    ManagerVerificationAdminSerializer,
 )
 from .permissions import IsManager, IsOwnerOrReadOnly, IsSuperAdmin
 from . import payments as payment_gateway
@@ -81,6 +86,11 @@ class HostelViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
     def perform_create(self, serializer):
+        if not self.request.user.is_verified:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                "Complete identity verification before listing a hostel."
+            )
         serializer.save(owner=self.request.user)
 
 
@@ -267,6 +277,86 @@ class ManagerBookingsView(generics.ListAPIView):
 
 
 # ---------------------------------------------------------------------------
+# Manager: identity verification
+# ---------------------------------------------------------------------------
+
+class ManagerVerificationView(generics.GenericAPIView):
+    """
+    GET  — return the manager's existing verification record (404 if none).
+    POST — create/update the verification record and initiate the GHS 5
+           Paystack activation payment.
+    """
+    serializer_class = ManagerVerificationSerializer
+    permission_classes = [IsManager]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        try:
+            verif = ManagerVerification.objects.get(manager=request.user)
+        except ManagerVerification.DoesNotExist:
+            return Response({"detail": "No verification record found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ManagerVerificationSerializer(verif).data)
+
+    def post(self, request):
+        # If a record already exists (e.g. resubmission after rejection) update it.
+        existing = ManagerVerification.objects.filter(manager=request.user).first()
+
+        serializer = ManagerVerificationSerializer(
+            existing, data=request.data, partial=bool(existing)
+        )
+        serializer.is_valid(raise_exception=True)
+
+        verif = serializer.save(manager=request.user)
+
+        # Initiate GHS 5 Paystack payment.
+        import uuid
+        import requests as http_requests
+        from .payments import PAYSTACK_SECRET, _paystack_headers, PAYSTACK_BASE
+
+        ref = f"verif_{uuid.uuid4().hex[:16]}"
+        verif.payment_ref = ref
+        verif.payment_confirmed = False
+        verif.status = VerificationStatus.PENDING
+        verif.save(update_fields=["payment_ref", "payment_confirmed", "status"])
+
+        authorization_url = None
+        if PAYSTACK_SECRET:
+            try:
+                resp = http_requests.post(
+                    f"{PAYSTACK_BASE}/transaction/initialize",
+                    headers=_paystack_headers(),
+                    json={
+                        "email": request.user.email,
+                        "amount": 500,  # GHS 5 = 500 pesewas
+                        "reference": ref,
+                        "currency": "GHS",
+                        "metadata": {
+                            "type": "verification",
+                            "manager_id": request.user.pk,
+                            "verification_id": verif.pk,
+                        },
+                        "callback_url": f"{getattr(settings, 'FRONTEND_URL', '')}/manager/verification/callback",
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                resp_data = resp.json().get("data", {})
+                authorization_url = resp_data.get("authorization_url")
+            except Exception as exc:
+                logger.error("Paystack verification payment init failed: %s", exc)
+        else:
+            # Stub: auto-confirm payment in dev mode so the flow can be tested.
+            verif.payment_confirmed = True
+            verif.save(update_fields=["payment_confirmed"])
+
+        return Response({
+            "verification": ManagerVerificationSerializer(verif).data,
+            "authorization_url": authorization_url,
+            "stub": not bool(PAYSTACK_SECRET),
+        }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
 # Superadmin views
 # ---------------------------------------------------------------------------
 
@@ -355,6 +445,54 @@ class AdminRefundBookingView(generics.GenericAPIView):
 
 
 # ---------------------------------------------------------------------------
+# Admin: manager verification decisions
+# ---------------------------------------------------------------------------
+
+class AdminVerificationListView(generics.ListAPIView):
+    """List all manager verification submissions — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+    serializer_class = ManagerVerificationAdminSerializer
+    queryset = ManagerVerification.objects.all().select_related("manager").order_by("-submitted_at")
+
+
+class AdminVerificationDecideView(generics.GenericAPIView):
+    """Approve or reject a manager verification — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk, action):
+        verif = get_object_or_404(ManagerVerification, pk=pk)
+
+        if action == "approve":
+            verif.status = VerificationStatus.APPROVED
+            verif.rejection_reason = ""
+            verif.reviewed_at = timezone.now()
+            verif.save(update_fields=["status", "rejection_reason", "reviewed_at"])
+            verif.manager.is_verified = True
+            verif.manager.save(update_fields=["is_verified"])
+
+        elif action == "reject":
+            reason = request.data.get("rejection_reason", "").strip()
+            if not reason:
+                return Response(
+                    {"detail": "rejection_reason is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            verif.status = VerificationStatus.REJECTED
+            verif.rejection_reason = reason
+            verif.reviewed_at = timezone.now()
+            verif.save(update_fields=["status", "rejection_reason", "reviewed_at"])
+            verif.manager.is_verified = False
+            verif.manager.save(update_fields=["is_verified"])
+
+        else:
+            return Response({"detail": "Invalid action."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(ManagerVerificationAdminSerializer(verif).data)
+
+
+# ---------------------------------------------------------------------------
 # Paystack webhook
 # ---------------------------------------------------------------------------
 
@@ -383,7 +521,22 @@ class PaystackWebhookView(APIView):
 
         data = event.get("data", {})
         reference = data.get("reference", "")
+        metadata = data.get("metadata") or {}
 
+        # Verification activation payment.
+        if metadata.get("type") == "verification":
+            try:
+                verif = ManagerVerification.objects.get(
+                    pk=metadata["verification_id"], payment_ref=reference
+                )
+                verif.payment_confirmed = True
+                verif.save(update_fields=["payment_confirmed"])
+                logger.info("Webhook: verification #%s payment confirmed", verif.pk)
+            except (ManagerVerification.DoesNotExist, KeyError):
+                logger.warning("Webhook: verification not found for reference %s", reference)
+            return HttpResponse(status=200)
+
+        # Regular booking payment.
         payment = Payment.objects.filter(reference=reference).select_related(
             "booking__hostel__owner", "booking__student"
         ).first()

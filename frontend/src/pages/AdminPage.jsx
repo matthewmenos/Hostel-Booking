@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   ShieldCheck, Users, Building2, BookOpen, BadgeCheck,
   BarChart2, CreditCard, Wallet, Settings, TrendingUp, UserCheck,
+  CheckCircle2, XCircle, Clock, ExternalLink,
 } from "lucide-react";
 import { adminApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
@@ -9,13 +10,14 @@ import { SkeletonBookingRow, SkeletonCard, SkeletonStatCard } from "../component
 import { STATUS_UI } from "../utils/bookingStatus.js";
 
 const TABS = [
-  { id: "overview",  label: "Overview",      icon: BarChart2 },
-  { id: "paystack",  label: "Paystack",       icon: CreditCard },
-  { id: "payouts",   label: "Manager Payouts",icon: Wallet },
-  { id: "settings",  label: "Settings",       icon: Settings },
-  { id: "users",     label: "Users",          icon: Users },
-  { id: "hostels",   label: "Hostels",        icon: Building2 },
-  { id: "bookings",  label: "Bookings",       icon: BookOpen },
+  { id: "overview",       label: "Overview",       icon: BarChart2 },
+  { id: "verifications",  label: "Verifications",  icon: ShieldCheck },
+  { id: "paystack",       label: "Paystack",        icon: CreditCard },
+  { id: "payouts",        label: "Manager Payouts", icon: Wallet },
+  { id: "settings",       label: "Settings",        icon: Settings },
+  { id: "users",          label: "Users",           icon: Users },
+  { id: "hostels",        label: "Hostels",         icon: Building2 },
+  { id: "bookings",       label: "Bookings",        icon: BookOpen },
 ];
 
 const ROLE_STYLES = {
@@ -64,13 +66,206 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {tab === "overview"  && <OverviewTab />}
-      {tab === "paystack"  && <PaystackTab />}
-      {tab === "payouts"   && <PayoutsTab />}
-      {tab === "settings"  && <SettingsTab />}
-      {tab === "users"     && <UsersTab />}
-      {tab === "hostels"   && <HostelsTab />}
-      {tab === "bookings"  && <BookingsTab />}
+      {tab === "overview"       && <OverviewTab />}
+      {tab === "verifications"  && <VerificationsTab />}
+      {tab === "paystack"       && <PaystackTab />}
+      {tab === "payouts"        && <PayoutsTab />}
+      {tab === "settings"       && <SettingsTab />}
+      {tab === "users"          && <UsersTab />}
+      {tab === "hostels"        && <HostelsTab />}
+      {tab === "bookings"       && <BookingsTab />}
+    </div>
+  );
+}
+
+// ── Verifications tab ─────────────────────────────────────────────────────────
+
+const VERIF_STATUS = {
+  pending:  { label: "Pending",  cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  approved: { label: "Approved", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  rejected: { label: "Rejected", cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+};
+
+function VerificationsTab() {
+  const { addToast } = useToast();
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [expanded, setExpanded] = useState(null);
+  const [rejecting, setRejecting] = useState({}); // id → reason string
+  const [busy, setBusy]         = useState({});
+
+  useEffect(() => {
+    adminApi.verifications()
+      .then(({ data }) => setItems(data.results ?? data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const approve = async (id) => {
+    setBusy((b) => ({ ...b, [id]: true }));
+    try {
+      const { data } = await adminApi.approveVerification(id);
+      setItems((prev) => prev.map((v) => v.id === id ? data : v));
+      addToast("success", "Manager approved — they can now list hostels.");
+    } catch {
+      addToast("error", "Approval failed.");
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }));
+    }
+  };
+
+  const reject = async (id) => {
+    const reason = rejecting[id] ?? "";
+    if (!reason.trim()) { addToast("error", "Enter a rejection reason."); return; }
+    setBusy((b) => ({ ...b, [id]: true }));
+    try {
+      const { data } = await adminApi.rejectVerification(id, reason);
+      setItems((prev) => prev.map((v) => v.id === id ? data : v));
+      setRejecting((r) => { const n = { ...r }; delete n[id]; return n; });
+      addToast("info", "Application rejected.");
+    } catch {
+      addToast("error", "Rejection failed.");
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }));
+    }
+  };
+
+  if (loading) return <div className="space-y-3">{[1,2,3].map(i => <SkeletonBookingRow key={i} />)}</div>;
+  if (items.length === 0) return (
+    <div className="py-16 text-center text-gray-400">
+      <ShieldCheck size={40} className="mx-auto mb-3 opacity-40" />
+      <p>No verification submissions yet.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {items.map((v) => {
+        const st = VERIF_STATUS[v.status] ?? VERIF_STATUS.pending;
+        const isOpen = expanded === v.id;
+        const isRejectMode = v.id in rejecting;
+
+        return (
+          <div key={v.id} className="card overflow-hidden">
+            {/* Header row */}
+            <div
+              className="flex flex-wrap items-center gap-3 p-4 cursor-pointer hover:bg-gray-50
+                dark:hover:bg-gray-800/50 transition-colors"
+              onClick={() => setExpanded(isOpen ? null : v.id)}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold truncate">{v.manager_username}</p>
+                <p className="text-xs text-gray-400">{v.manager_email}</p>
+              </div>
+              <span className="text-sm text-gray-500">{v.nationality}</span>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${st.cls}`}>
+                {st.label}
+              </span>
+              {v.payment_confirmed
+                ? <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 size={12}/> Paid</span>
+                : <span className="flex items-center gap-1 text-xs text-amber-500"><Clock size={12}/> Unpaid</span>
+              }
+              <span className="text-xs text-gray-400">{new Date(v.submitted_at).toLocaleDateString()}</span>
+            </div>
+
+            {/* Expanded detail */}
+            {isOpen && (
+              <div className="border-t border-gray-100 dark:border-gray-700 p-4 space-y-4">
+                {/* Images */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { url: v.id_front, label: "ID Front" },
+                    { url: v.id_back,  label: "ID Back" },
+                    { url: v.selfie,   label: "Selfie" },
+                  ].map(({ url, label }) => url ? (
+                    <a key={label} href={url} target="_blank" rel="noopener noreferrer"
+                      className="group relative block">
+                      <img src={url} alt={label}
+                        className="h-28 w-full rounded-lg object-cover ring-1 ring-gray-200
+                          group-hover:ring-brand transition-all dark:ring-gray-700" />
+                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5
+                        text-[10px] font-medium text-white flex items-center gap-1">
+                        <ExternalLink size={9}/> {label}
+                      </span>
+                    </a>
+                  ) : (
+                    <div key={label} className="flex h-28 items-center justify-center
+                      rounded-lg bg-gray-100 text-xs text-gray-400 dark:bg-gray-800">
+                      No image
+                    </div>
+                  ))}
+                </div>
+
+                {/* Location */}
+                <div className="text-sm space-y-1">
+                  <p><span className="font-medium">Address:</span> {v.address || "—"}</p>
+                  {v.latitude && (
+                    <p><span className="font-medium">GPS:</span> {v.latitude.toFixed(5)}, {v.longitude.toFixed(5)}</p>
+                  )}
+                </div>
+
+                {/* Rejection reason (if already rejected) */}
+                {v.rejection_reason && (
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600
+                    dark:bg-red-900/20 dark:text-red-400">
+                    <strong>Rejection reason:</strong> {v.rejection_reason}
+                  </p>
+                )}
+
+                {/* Action buttons */}
+                {v.status === "pending" && (
+                  <div className="space-y-3">
+                    {isRejectMode ? (
+                      <div className="space-y-2">
+                        <textarea
+                          rows={2}
+                          className="input resize-none text-sm"
+                          placeholder="Reason for rejection (required)"
+                          value={rejecting[v.id]}
+                          onChange={(e) => setRejecting((r) => ({ ...r, [v.id]: e.target.value }))}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => reject(v.id)}
+                            disabled={busy[v.id]}
+                            className="btn-primary bg-red-600 hover:bg-red-700 px-4 py-2 text-sm disabled:opacity-50"
+                          >
+                            {busy[v.id] ? "Rejecting…" : "Confirm Reject"}
+                          </button>
+                          <button
+                            onClick={() => setRejecting((r) => { const n = { ...r }; delete n[v.id]; return n; })}
+                            className="btn-ghost px-4 py-2 text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => approve(v.id)}
+                          disabled={busy[v.id]}
+                          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2
+                            text-sm font-medium text-white hover:bg-green-700 transition disabled:opacity-50"
+                        >
+                          <CheckCircle2 size={14}/> {busy[v.id] ? "Approving…" : "Approve"}
+                        </button>
+                        <button
+                          onClick={() => setRejecting((r) => ({ ...r, [v.id]: "" }))}
+                          className="flex items-center gap-1.5 rounded-lg border border-red-300
+                            px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition
+                            dark:border-red-800 dark:hover:bg-red-900/20"
+                        >
+                          <XCircle size={14}/> Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

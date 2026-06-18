@@ -2,7 +2,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import TenantHostel, HostelImage, GlobalBooking, Payment
+from .models import TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification
 
 
 class HostelImageSerializer(serializers.ModelSerializer):
@@ -99,7 +99,42 @@ class AdminUserSerializer(serializers.ModelSerializer):
         model = get_user_model()
         fields = (
             "id", "username", "email", "first_name", "last_name",
-            "role", "is_active", "phone", "university",
+            "role", "is_active", "is_verified", "phone", "university",
             "paystack_recipient_code", "date_joined",
         )
-        read_only_fields = ("id", "username", "email", "date_joined")
+        read_only_fields = ("id", "username", "email", "date_joined", "is_verified")
+
+
+class ManagerVerificationSerializer(serializers.ModelSerializer):
+    """Manager's own view of their verification record."""
+    class Meta:
+        model = ManagerVerification
+        fields = (
+            "id", "nationality",
+            "id_front", "id_back", "selfie",
+            "latitude", "longitude", "address",
+            "payment_ref", "payment_confirmed",
+            "status", "rejection_reason", "submitted_at",
+        )
+        read_only_fields = (
+            "id", "payment_ref", "payment_confirmed",
+            "status", "rejection_reason", "submitted_at",
+        )
+
+
+class ManagerVerificationAdminSerializer(serializers.ModelSerializer):
+    """Superadmin view — includes manager username and full image URLs."""
+    manager_username = serializers.CharField(source="manager.username", read_only=True)
+    manager_email    = serializers.CharField(source="manager.email",    read_only=True)
+
+    class Meta:
+        model = ManagerVerification
+        fields = (
+            "id", "manager_username", "manager_email",
+            "nationality",
+            "id_front", "id_back", "selfie",
+            "latitude", "longitude", "address",
+            "payment_ref", "payment_confirmed",
+            "status", "rejection_reason", "submitted_at", "reviewed_at",
+        )
+        read_only_fields = fields

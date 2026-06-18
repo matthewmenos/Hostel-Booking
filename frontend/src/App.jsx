@@ -8,6 +8,8 @@ import RegisterPage from "./pages/RegisterPage.jsx";
 import StudentDashboard from "./pages/StudentDashboard.jsx";
 import ManagerPortal from "./pages/ManagerPortal.jsx";
 import NewHostelPage from "./pages/NewHostelPage.jsx";
+import ManagerVerificationPage from "./pages/ManagerVerificationPage.jsx";
+import ManagerVerificationCallback from "./pages/ManagerVerificationCallback.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 
@@ -42,6 +44,22 @@ export default function App() {
             element={
               <ProtectedRoute role="manager">
                 <NewHostelPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager/verification"
+            element={
+              <ProtectedRoute role="manager">
+                <ManagerVerificationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager/verification/callback"
+            element={
+              <ProtectedRoute role="manager">
+                <ManagerVerificationCallback />
               </ProtectedRoute>
             }
           />

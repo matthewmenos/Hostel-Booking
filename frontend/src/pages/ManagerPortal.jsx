@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2,
   Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
+  ShieldAlert, Clock, AlertCircle,
 } from "lucide-react";
-import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
+import { hostelApi, tenantApi, bookingApi, managerApi } from "../api/endpoints.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonStatCard, SkeletonBookingRow } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
@@ -20,11 +22,23 @@ const TABS = [
 
 export default function ManagerPortal() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [hostels, setHostels] = useState([]);
   const [active, setActive] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
+  const [verif, setVerif] = useState(null);
+  const [verifLoading, setVerifLoading] = useState(true);
+
+  // Fetch verification status unless already verified
+  useEffect(() => {
+    if (user?.is_verified) { setVerifLoading(false); return; }
+    managerApi.getVerification()
+      .then(({ data }) => setVerif(data))
+      .catch(() => setVerif(null))
+      .finally(() => setVerifLoading(false));
+  }, [user?.is_verified]);
 
   useEffect(() => {
     hostelApi.myHostels().then(({ data }) => {
@@ -46,7 +60,84 @@ export default function ManagerPortal() {
     return { total, taken, pct: total ? Math.round((taken / total) * 100) : 0 };
   })();
 
-  if (loading) return <div className="grid gap-4 sm:grid-cols-3">{[1,2,3].map(i=><SkeletonStatCard key={i}/>)}</div>;
+  if (loading || verifLoading) return <div className="grid gap-4 sm:grid-cols-3">{[1,2,3].map(i=><SkeletonStatCard key={i}/>)}</div>;
+
+  // ── Verification gate ───────────────────────────────────────────────────────
+  if (!user?.is_verified) {
+    const isPending  = verif?.status === "pending";
+    const isRejected = verif?.status === "rejected";
+
+    return (
+      <div className="mx-auto max-w-lg">
+        <div className="card p-8 text-center space-y-5">
+          <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full
+            ${isPending ? "bg-amber-100 dark:bg-amber-900/30" : "bg-brand/10"}`}>
+            {isPending
+              ? <Clock size={32} className="text-amber-500" />
+              : <ShieldAlert size={32} className="text-brand" />}
+          </div>
+
+          {isPending ? (
+            <>
+              <h2 className="text-xl font-bold">Verification Under Review</h2>
+              <p className="text-gray-500">
+                Your identity verification application has been submitted and is awaiting
+                admin review. This usually takes <strong>1–2 business days</strong>.
+              </p>
+              <p className="text-sm text-gray-400">
+                You will be able to list hostels once your account is approved.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-bold">Identity Verification Required</h2>
+              <p className="text-gray-500">
+                Before listing your first hostel, you must verify your identity.
+                This is a one-time process that takes about 5 minutes.
+              </p>
+
+              {isRejected && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3
+                  dark:border-red-900/40 dark:bg-red-900/20 text-left">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                        Previous application rejected
+                      </p>
+                      {verif?.rejection_reason && (
+                        <p className="mt-1 text-sm text-red-600 dark:text-red-300">
+                          {verif.rejection_reason}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-left space-y-2 text-sm text-gray-500">
+                <p className="font-medium text-gray-700 dark:text-gray-300">What you'll need:</p>
+                <ul className="space-y-1 pl-1">
+                  <li>🇬🇭 Your nationality</li>
+                  <li>🪪 Ghana Card (front &amp; back photo)</li>
+                  <li>🤳 A selfie / facial photo</li>
+                  <li>📍 Your business GPS location &amp; address</li>
+                  <li>💳 GHS 5 activation fee (via Paystack)</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => navigate("/manager/verification")}
+                className="btn-primary w-full py-3"
+              >
+                {isRejected ? "Resubmit Application" : "Start Verification"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (hostels.length === 0) {
     return (

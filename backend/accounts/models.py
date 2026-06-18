@@ -25,6 +25,8 @@ class User(AbstractUser):
     university = models.CharField(max_length=120, blank=True)
     # Paystack recipient code for manager payouts (e.g. RCP_xxxx).
     paystack_recipient_code = models.CharField(max_length=100, blank=True)
+    # Set to True by admin after identity verification is approved.
+    is_verified = models.BooleanField(default=False)
 
     @property
     def is_manager(self) -> bool:

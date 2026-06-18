@@ -22,6 +22,11 @@ export const hostelApi = {
   deleteImage: (id) => api.delete(`/gallery/${id}/`),
 };
 
+export const managerApi = {
+  getVerification:    () => api.get("/manager/verification/"),
+  submitVerification: (fd) => api.post("/manager/verification/", fd),
+};
+
 export const bookingApi = {
   myBookings:     () => api.get("/bookings/"),
   book:           (payload) => api.post("/book/", payload),
@@ -67,7 +72,11 @@ export const adminApi = {
   deactivateHostel:  (slug) => api.post(`/admin/hostels/${slug}/deactivate/`),
   verifyHostel:      (slug) => api.post(`/admin/hostels/${slug}/verify/`),
   // Bookings
-  bookings:          (params) => api.get("/admin/bookings/", { params }),
-  approveBooking:    (id) => api.post(`/admin/bookings/${id}/approve/`),
-  refundBooking:     (id) => api.post(`/admin/bookings/${id}/refund/`),
+  bookings:           (params) => api.get("/admin/bookings/", { params }),
+  approveBooking:     (id) => api.post(`/admin/bookings/${id}/approve/`),
+  refundBooking:      (id) => api.post(`/admin/bookings/${id}/refund/`),
+  // Manager verifications
+  verifications:      () => api.get("/admin/verifications/"),
+  approveVerification:(id) => api.post(`/admin/verifications/${id}/approve/`),
+  rejectVerification: (id, reason) => api.post(`/admin/verifications/${id}/reject/`, { rejection_reason: reason }),
 };

@@ -10,6 +10,7 @@ from .views import (
     CreateBookingView,
     ManagerBookingsView,
     ManagerAnalyticsView,
+    ManagerVerificationView,
     AdminUserListView,
     AdminUserUpdateView,
     AdminHostelListView,
@@ -19,6 +20,8 @@ from .views import (
     AdminRefundBookingView,
     AdminApproveBookingView,
     AdminVerifyHostelView,
+    AdminVerificationListView,
+    AdminVerificationDecideView,
     AdminOverviewView,
     AdminPaystackBalanceView,
     AdminPaystackTransfersView,
@@ -49,6 +52,7 @@ urlpatterns = [
     # Manager
     path("manager/bookings/", ManagerBookingsView.as_view(), name="manager-bookings"),
     path("manager/analytics/", ManagerAnalyticsView.as_view(), name="manager-analytics"),
+    path("manager/verification/", ManagerVerificationView.as_view(), name="manager-verification"),
     # Superadmin — overview & platform
     path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
     path("admin/settings/", AdminSettingsView.as_view(), name="admin-settings"),
@@ -66,6 +70,9 @@ urlpatterns = [
     path("admin/hostels/<slug:slug>/activate/", AdminHostelActivateView.as_view(), name="admin-hostel-activate"),
     path("admin/hostels/<slug:slug>/deactivate/", AdminHostelDeactivateView.as_view(), name="admin-hostel-deactivate"),
     path("admin/hostels/<slug:slug>/verify/", AdminVerifyHostelView.as_view(), name="admin-hostel-verify"),
+    # Superadmin — verifications
+    path("admin/verifications/", AdminVerificationListView.as_view(), name="admin-verifications"),
+    path("admin/verifications/<int:pk>/<str:action>/", AdminVerificationDecideView.as_view(), name="admin-verification-decide"),
     # Superadmin — bookings
     path("admin/bookings/", AdminBookingsView.as_view(), name="admin-bookings"),
     path("admin/bookings/<int:pk>/refund/", AdminRefundBookingView.as_view(), name="admin-booking-refund"),

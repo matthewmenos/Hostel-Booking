@@ -348,11 +348,21 @@ function StatCard({ icon: Icon, label, value }) {
 
 // ── Rooms & Beds tab ──────────────────────────────────────────────────────────
 
+const ROOM_TYPES = [
+  { value: "1_in_a_room", label: "1-in-a-room", capacity: 1 },
+  { value: "2_in_a_room", label: "2-in-a-room", capacity: 2 },
+  { value: "3_in_a_room", label: "3-in-a-room", capacity: 3 },
+  { value: "4_in_a_room", label: "4-in-a-room", capacity: 4 },
+  { value: "6_in_a_room", label: "6-in-a-room", capacity: 6 },
+];
+
 function RoomsTab({ slug, rooms, onRoomsChange }) {
   const { addToast } = useToast();
   const [form, setForm] = useState({ block: "", room_number: "", room_type: "2_in_a_room" });
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(null);
+
+  const selectedType = ROOM_TYPES.find((t) => t.value === form.room_type);
 
   const refreshRooms = () =>
     tenantApi.rooms(slug).then(({ data }) => onRoomsChange(data.results ?? data));
@@ -364,7 +374,7 @@ function RoomsTab({ slug, rooms, onRoomsChange }) {
       await tenantApi.createRoom(slug, form);
       await refreshRooms();
       setForm({ block: "", room_number: "", room_type: "2_in_a_room" });
-      addToast("success", "Room added.");
+      addToast("success", `Room added with ${selectedType?.capacity ?? "?"} bed(s) auto-created.`);
     } catch (err) {
       addToast("error", err.response?.data?.detail ?? Object.values(err.response?.data ?? {}).flat().join(" ") ?? "Could not add room.");
     } finally {
@@ -374,81 +384,70 @@ function RoomsTab({ slug, rooms, onRoomsChange }) {
 
   return (
     <div className="card p-5 space-y-4">
-      <h2 className="font-semibold text-lg">Add Room</h2>
+      <div>
+        <h2 className="font-semibold text-lg">Add Room</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Beds are auto-created based on room type — e.g. room 101 (2-in-a-room) creates beds 101A and 101B.
+        </p>
+      </div>
       <form onSubmit={addRoom} className="grid gap-2 sm:grid-cols-4">
         <input className="input" placeholder="Block e.g. A" value={form.block}
           onChange={(e) => setForm({ ...form, block: e.target.value })} required />
-        <input className="input" placeholder="Room No." value={form.room_number}
+        <input className="input" placeholder="Room No. e.g. 101" value={form.room_number}
           onChange={(e) => setForm({ ...form, room_number: e.target.value })} required />
         <select className="input" value={form.room_type} onChange={(e) => setForm({ ...form, room_type: e.target.value })}>
-          <option value="1_in_a_room">1-in-a-room</option>
-          <option value="2_in_a_room">2-in-a-room</option>
-          <option value="4_in_a_room">4-in-a-room</option>
+          {ROOM_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>{t.label} ({t.capacity} bed{t.capacity > 1 ? "s" : ""})</option>
+          ))}
         </select>
-        <button className="btn-primary" disabled={busy}><Plus size={16} /> Add</button>
+        <button className="btn-primary flex items-center gap-1 justify-center" disabled={busy}>
+          <Plus size={16} /> Add Room
+        </button>
       </form>
 
       <div className="divide-y dark:divide-gray-700">
-        {rooms.map((r) => (
-          <div key={r.id}>
-            <button
-              className="flex w-full items-center justify-between py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 px-1 rounded transition"
-              onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
-              <span className="font-medium">{r.block}-{r.room_number}
-                <span className="ml-2 text-sm text-gray-500">({r.room_type_display})</span>
-              </span>
-              <span className="flex items-center gap-2 text-sm text-gray-500">
-                {r.beds.filter(b => b.is_occupied).length}/{r.beds.length} beds taken
-                {expanded === r.id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
-              </span>
-            </button>
-            {expanded === r.id && (
-              <BedManager slug={slug} room={r} onRefresh={refreshRooms} />
-            )}
-          </div>
-        ))}
-        {rooms.length === 0 && <p className="py-3 text-sm text-gray-400">No rooms yet.</p>}
+        {rooms.map((r) => {
+          const taken = r.beds.filter((b) => b.is_occupied).length;
+          const total = r.beds.length;
+          const cap   = ROOM_TYPES.find((t) => t.value === r.room_type)?.capacity ?? total;
+          return (
+            <div key={r.id}>
+              <button
+                className="flex w-full items-center justify-between py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 px-1 rounded transition"
+                onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                <span className="font-medium">
+                  Block {r.block} · Room {r.room_number}
+                  <span className="ml-2 text-sm font-normal text-gray-500">({r.room_type_display})</span>
+                </span>
+                <span className="flex items-center gap-2 text-sm text-gray-500">
+                  <span className={taken === cap ? "text-red-500 font-medium" : taken > 0 ? "text-amber-500" : "text-green-600"}>
+                    {taken}/{cap} occupied
+                  </span>
+                  {expanded === r.id ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+                </span>
+              </button>
+              {expanded === r.id && (
+                <BedManager slug={slug} room={r} cap={cap} onRefresh={refreshRooms} />
+              )}
+            </div>
+          );
+        })}
+        {rooms.length === 0 && <p className="py-3 text-sm text-gray-400">No rooms yet. Add your first room above.</p>}
       </div>
     </div>
   );
 }
 
-function BedManager({ slug, room, onRefresh }) {
+function BedManager({ slug, room, cap, onRefresh }) {
   const { addToast } = useToast();
-  const [bedLabel, setBedLabel] = useState("");
-  const [bulkCount, setBulkCount] = useState("");
-  const [bulkMode, setBulkMode] = useState(false);
-  const [busy, setBusy] = useState(false);
 
-  const addBed = async (e) => {
-    e.preventDefault();
-    setBusy(true);
+  const vacateBed = async (bedId) => {
     try {
-      await tenantApi.createBed(slug, { room: room.id, bed_label: bedLabel });
-      setBedLabel("");
+      await tenantApi.vacateBed(slug, bedId);
       await onRefresh();
-      addToast("success", "Bed added.");
-    } catch (err) {
-      addToast("error", err.response?.data?.detail ?? "Could not add bed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addBulk = async (e) => {
-    e.preventDefault();
-    const count = parseInt(bulkCount, 10);
-    if (!count || count < 1) return;
-    setBusy(true);
-    try {
-      await tenantApi.bulkCreateBeds(slug, room.id, { count, label_prefix: "Bed" });
-      setBulkCount("");
-      await onRefresh();
-      addToast("success", `${count} beds added.`);
-    } catch (err) {
-      addToast("error", err.response?.data?.detail ?? "Could not add beds.");
-    } finally {
-      setBusy(false);
+      addToast("success", "Bed marked as vacant.");
+    } catch {
+      addToast("error", "Could not vacate bed.");
     }
   };
 
@@ -462,73 +461,40 @@ function BedManager({ slug, room, onRefresh }) {
     }
   };
 
-  const vacateBed = async (bedId) => {
-    try {
-      await tenantApi.vacateBed(slug, bedId);
-      await onRefresh();
-      addToast("success", "Bed marked as vacant.");
-    } catch {
-      addToast("error", "Could not vacate bed.");
-    }
-  };
-
   return (
-    <div className="ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-2">
+    <div className="ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
+      <p className="text-xs text-gray-400 mb-2">
+        {room.beds.length}/{cap} beds present · {room.beds.filter(b => b.is_occupied).length} occupied
+      </p>
       {room.beds.map((bed) => (
-        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-1.5 text-sm shadow-sm">
+        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-2 text-sm shadow-sm">
           <span className="flex items-center gap-2">
-            <BedDouble size={14} />
-            {bed.bed_label}
+            <BedDouble size={14} className="shrink-0 text-gray-400" />
+            <span className="font-medium">{bed.bed_label}</span>
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium
-              ${bed.is_occupied ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
-              {bed.is_occupied ? "Taken" : "Free"}
+              ${bed.is_occupied
+                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
+              {bed.is_occupied ? "Occupied" : "Vacant"}
             </span>
           </span>
           <div className="flex items-center gap-2">
-            {bed.is_occupied && (
+            {bed.is_occupied ? (
               <button
                 onClick={() => vacateBed(bed.id)}
-                className="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 rounded px-2 py-0.5 hover:bg-amber-50"
-                title="Mark bed as vacant"
+                className="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 rounded px-2 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/20"
               >
                 Vacate
               </button>
-            )}
-            {!bed.is_occupied && (
-              <button onClick={() => deleteBed(bed.id)} className="text-gray-400 hover:text-red-500">
+            ) : (
+              <button onClick={() => deleteBed(bed.id)} className="text-gray-400 hover:text-red-500" title="Remove bed">
                 <Trash2 size={14} />
               </button>
             )}
           </div>
         </div>
       ))}
-      {room.beds.length === 0 && <p className="text-xs text-gray-400">No beds yet.</p>}
-
-      <div className="flex gap-2 pt-1 flex-wrap">
-        <button
-          type="button"
-          onClick={() => setBulkMode((v) => !v)}
-          className="text-xs text-brand hover:underline">
-          {bulkMode ? "Single add" : "Bulk add"}
-        </button>
-      </div>
-
-      {!bulkMode ? (
-        <form onSubmit={addBed} className="flex gap-2 pt-1">
-          <input className="input flex-1 text-sm py-1" placeholder="Bed label e.g. Bed A"
-            value={bedLabel} onChange={(e) => setBedLabel(e.target.value)} required />
-          <button className="btn-primary px-3 py-1 text-sm" disabled={busy}>Add</button>
-        </form>
-      ) : (
-        <form onSubmit={addBulk} className="flex gap-2 pt-1 items-center">
-          <input className="input w-24 text-sm py-1" type="number" min="1" max="50"
-            placeholder="Count" value={bulkCount} onChange={(e) => setBulkCount(e.target.value)} required />
-          <span className="text-xs text-gray-500">beds (auto-labelled)</span>
-          <button className="btn-primary px-3 py-1 text-sm" disabled={busy}>
-            <Plus size={13}/> Add all
-          </button>
-        </form>
-      )}
+      {room.beds.length === 0 && <p className="text-xs text-gray-400 py-1">No beds in this room.</p>}
     </div>
   );
 }

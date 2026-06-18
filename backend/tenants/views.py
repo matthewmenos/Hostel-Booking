@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from tenants import tenant_manager
-from .models import Room, BedSpace, TenantAnnouncement
+from .models import Room, BedSpace, TenantAnnouncement, CAPACITY_MAP, BED_LETTER
 from .serializers import (
     RoomSerializer,
     BedSpaceSerializer,
@@ -64,18 +64,44 @@ class RoomViewSet(_TenantScopedViewSet):
     queryset = Room.objects.all().prefetch_related("beds")
     serializer_class = RoomSerializer
 
+    def perform_create(self, serializer):
+        self._check_manager()
+        room = serializer.save()
+        cap = CAPACITY_MAP.get(room.room_type, 1)
+        beds = [
+            BedSpace(room=room, bed_label=f"{room.room_number}{BED_LETTER[i]}")
+            for i in range(cap)
+        ]
+        BedSpace.objects.using(self.request.tenant_slug and
+            tenant_manager.tenant_db_alias(self.request.tenant_slug)
+        ).bulk_create(beds)
+        self._mark_dirty()
+
 
 class BedSpaceViewSet(_TenantScopedViewSet):
     queryset = BedSpace.objects.all()
     serializer_class = BedSpaceSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    def perform_create(self, serializer):
+        self._check_manager()
+        room = serializer.validated_data["room"]
+        cap = CAPACITY_MAP.get(room.room_type, 1)
+        existing = BedSpace.objects.filter(room=room).count()
+        if existing >= cap:
+            raise ValidationError(
+                f"This room type ({room.get_room_type_display()}) only allows {cap} bed(s). "
+                f"All {cap} beds are already present."
+            )
+        serializer.save()
+        self._mark_dirty()
+
     def perform_update(self, serializer):
         self._check_manager()
         instance = serializer.instance
         new_occupied = serializer.validated_data.get("is_occupied", instance.is_occupied)
         if instance.is_occupied and not new_occupied:
-            serializer.save(is_occupied=False, occupant_ref=0, booking_ref=0)
+            serializer.save(is_occupied=False, occupant_ref=None, booking_ref=None)
         else:
             serializer.save()
         self._mark_dirty()
@@ -109,9 +135,16 @@ class BulkBedCreateView(APIView):
 
         count = int(request.data.get("count", 0))
         prefix = request.data.get("label_prefix", "Bed").strip() or "Bed"
+        cap = CAPACITY_MAP.get(room.room_type, 1)
+        existing_count = BedSpace.objects.using(alias).filter(room=room).count()
+        available_slots = cap - existing_count
 
-        if count < 1 or count > 50:
-            raise ValidationError("count must be between 1 and 50.")
+        if available_slots <= 0:
+            raise ValidationError(
+                f"This room type ({room.get_room_type_display()}) is already at full capacity ({cap} beds)."
+            )
+        if count < 1 or count > available_slots:
+            raise ValidationError(f"count must be between 1 and {available_slots} (remaining capacity).")
 
         existing_labels = set(
             BedSpace.objects.using(alias).filter(room=room).values_list("bed_label", flat=True)

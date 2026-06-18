@@ -11,10 +11,23 @@ local to that one hostel — there is no cross-tenant mixing.
 from django.db import models
 
 
+CAPACITY_MAP = {
+    "1_in_a_room": 1,
+    "2_in_a_room": 2,
+    "3_in_a_room": 3,
+    "4_in_a_room": 4,
+    "6_in_a_room": 6,
+}
+
+BED_LETTER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
 class RoomType(models.TextChoices):
     SINGLE = "1_in_a_room", "1-in-a-room"
     DOUBLE = "2_in_a_room", "2-in-a-room"
-    QUAD = "4_in_a_room", "4-in-a-room"
+    TRIPLE = "3_in_a_room", "3-in-a-room"
+    QUAD   = "4_in_a_room", "4-in-a-room"
+    SIX    = "6_in_a_room", "6-in-a-room"
 
 
 class Room(models.Model):
@@ -41,9 +54,7 @@ class Room(models.Model):
 
     @property
     def capacity(self) -> int:
-        return {"1_in_a_room": 1, "2_in_a_room": 2, "4_in_a_room": 4}.get(
-            self.room_type, 1
-        )
+        return CAPACITY_MAP.get(self.room_type, 1)
 
 
 class BedSpace(models.Model):

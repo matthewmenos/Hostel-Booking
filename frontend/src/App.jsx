@@ -14,10 +14,13 @@ import AdminPage from "./pages/AdminPage.jsx";
 import NotificationsPage from "./pages/NotificationsPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import { NotificationProvider } from "./context/NotificationContext.jsx";
+import { ChatProvider } from "./context/ChatContext.jsx";
+import ChatPage from "./pages/ChatPage.jsx";
 
 export default function App() {
   return (
     <NotificationProvider>
+    <ChatProvider>
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <Navbar />
       <main className="mx-auto max-w-6xl px-4 py-6">
@@ -43,26 +46,18 @@ export default function App() {
             }
           />
           <Route
-            path="/manager"
-            element={
-              <ProtectedRoute role="manager">
-                <ManagerPortal />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/manager/:tab"
-            element={
-              <ProtectedRoute role="manager">
-                <ManagerPortal />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/manager/new-hostel"
             element={
               <ProtectedRoute role="manager">
                 <NewHostelPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager/verification/callback"
+            element={
+              <ProtectedRoute role="manager">
+                <ManagerVerificationCallback />
               </ProtectedRoute>
             }
           />
@@ -75,10 +70,18 @@ export default function App() {
             }
           />
           <Route
-            path="/manager/verification/callback"
+            path="/manager"
             element={
               <ProtectedRoute role="manager">
-                <ManagerVerificationCallback />
+                <ManagerPortal />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager/:tab"
+            element={
+              <ProtectedRoute role="manager">
+                <ManagerPortal />
               </ProtectedRoute>
             }
           />
@@ -98,10 +101,27 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute role="student">
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat/:groupId"
+            element={
+              <ProtectedRoute role="student">
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>
+    </ChatProvider>
     </NotificationProvider>
   );
 }

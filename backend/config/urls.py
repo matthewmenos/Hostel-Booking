@@ -28,6 +28,7 @@ urlpatterns = [
     path("health/", health),
     path("admin/", admin.site.urls),
     path("api/auth/", include("accounts.urls")),
+    path("api/chat/", include("global_app.chat_urls")),
     path("api/", include("global_app.urls")),
     path("api/", include("tenants.urls")),
     # Catch-all: hand every other path to React so client-side routing works.

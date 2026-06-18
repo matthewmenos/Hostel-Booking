@@ -34,6 +34,7 @@ from tenants.context import set_current_tenant, clear_current_tenant
 from .models import (
     TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus,
     ManagerVerification, VerificationStatus, Notification, NotifType,
+    ChatRoom, ChatMembership, ChatRoomType,
 )
 from .serializers import (
     TenantHostelSerializer,
@@ -169,6 +170,12 @@ class CancelBookingView(generics.GenericAPIView):
 
         booking.payment_status = PaymentStatus.EXPIRED
         booking.save(update_fields=["payment_status"])
+
+        try:
+            _remove_student_from_chat_groups(booking)
+        except Exception as exc:
+            logger.error("Failed to remove student from chat groups for booking #%s: %s", booking.pk, exc)
+
         return Response(GlobalBookingSerializer(booking).data)
 
 
@@ -510,6 +517,11 @@ class AdminRefundBookingView(generics.GenericAPIView):
             link="/dashboard/bookings",
         )
 
+        try:
+            _remove_student_from_chat_groups(booking)
+        except Exception as exc:
+            logger.error("Failed to remove student from chat groups for booking #%s: %s", booking.pk, exc)
+
         return Response(GlobalBookingSerializer(booking).data)
 
 
@@ -655,6 +667,79 @@ class PaystackWebhookView(APIView):
         return HttpResponse(status=200)
 
 
+def _add_student_to_chat_groups(booking):
+    """
+    Called after a booking is approved. Opens the tenant DB read-only to
+    identify the physical room, then get-or-creates both chat rooms and
+    adds the student as an active member. Wrapped in try/except at call
+    site so chat errors never block the approval.
+    """
+    from tenants.models import BedSpace
+    hostel = booking.hostel
+    student = booking.student
+
+    block = ""
+    room_number = ""
+    if booking.bed_space_ref:
+        alias = tenant_manager.ensure_tenant_db(hostel.slug)
+        set_current_tenant(alias)
+        try:
+            bed = (
+                BedSpace.objects.using(alias)
+                .select_related("room")
+                .filter(pk=booking.bed_space_ref)
+                .first()
+            )
+            if bed and bed.room:
+                block = bed.room.block
+                room_number = bed.room.room_number
+        finally:
+            tenant_manager.sync_tenant_db(hostel.slug)
+            clear_current_tenant()
+
+    hostel_key = f"hostel:{hostel.slug}"
+    hostel_room, _ = ChatRoom.objects.get_or_create(
+        unique_key=hostel_key,
+        defaults={
+            "room_type": ChatRoomType.HOSTEL_WIDE,
+            "hostel": hostel,
+            "name": f"{hostel.name} — All Residents",
+        },
+    )
+    ChatMembership.objects.update_or_create(
+        room=hostel_room,
+        user=student,
+        defaults={"is_active": True, "booking_ref": booking.pk},
+    )
+
+    if block and room_number:
+        safe_block = block.lower().replace(" ", "-")
+        safe_room = room_number.lower().replace(" ", "-")
+        room_key = f"room:{hostel.slug}:{safe_block}:{safe_room}"
+        room_group, _ = ChatRoom.objects.get_or_create(
+            unique_key=room_key,
+            defaults={
+                "room_type": ChatRoomType.ROOM_GROUP,
+                "hostel": hostel,
+                "name": f"{hostel.name} — {block} Room {room_number}",
+                "block": block,
+                "room_number": room_number,
+            },
+        )
+        ChatMembership.objects.update_or_create(
+            room=room_group,
+            user=student,
+            defaults={"is_active": True, "booking_ref": booking.pk},
+        )
+
+
+def _remove_student_from_chat_groups(booking):
+    """Deactivate all chat memberships linked to this booking (cancel/refund)."""
+    ChatMembership.objects.filter(
+        booking_ref=booking.pk, is_active=True
+    ).update(is_active=False)
+
+
 def _send_booking_confirmation(booking, payment):
     student = booking.student
     name = student.get_full_name() or student.username
@@ -728,6 +813,11 @@ class AdminApproveBookingView(generics.GenericAPIView):
             body=f"Your booking at {booking.hostel.name} has been approved and your bed is confirmed.",
             link="/dashboard/bookings",
         )
+
+        try:
+            _add_student_to_chat_groups(booking)
+        except Exception as exc:
+            logger.error("Failed to add student to chat groups for booking #%s: %s", booking.pk, exc)
 
         return Response({
             "booking": GlobalBookingSerializer(booking).data,

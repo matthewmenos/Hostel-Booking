@@ -2,7 +2,10 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification, Notification
+from .models import (
+    TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification,
+    Notification, ChatRoom, ChatMembership, ChatMessage, MessageReaction,
+)
 
 
 class HostelImageSerializer(serializers.ModelSerializer):
@@ -156,3 +159,135 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_sender_username(self, obj):
         return obj.sender.username if obj.sender_id else None
+
+
+# ---------------------------------------------------------------------------
+# Chat serializers
+# ---------------------------------------------------------------------------
+
+class ChatMemberSerializer(serializers.ModelSerializer):
+    user_id    = serializers.IntegerField(source="user.id", read_only=True)
+    username   = serializers.CharField(source="user.username", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name  = serializers.CharField(source="user.last_name", read_only=True)
+    initials   = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatMembership
+        fields = ("user_id", "username", "first_name", "last_name", "initials", "joined_at")
+
+    def get_initials(self, obj):
+        fn = obj.user.first_name
+        ln = obj.user.last_name
+        if fn and ln:
+            return f"{fn[0]}{ln[0]}".upper()
+        return obj.user.username[:2].upper()
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    author_id        = serializers.IntegerField(source="author.id", read_only=True)
+    author_username  = serializers.SerializerMethodField()
+    author_initials  = serializers.SerializerMethodField()
+    reply_to_preview = serializers.SerializerMethodField()
+    reactions_summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatMessage
+        fields = (
+            "id", "room", "author_id", "author_username", "author_initials",
+            "body", "reply_to", "reply_to_preview",
+            "reactions_summary", "created_at", "edited_at",
+        )
+        read_only_fields = (
+            "id", "room", "author_id", "author_username", "author_initials",
+            "reply_to_preview", "reactions_summary", "created_at", "edited_at",
+        )
+
+    def get_author_username(self, obj):
+        return obj.author.username if obj.author_id else "deleted"
+
+    def get_author_initials(self, obj):
+        if not obj.author_id:
+            return "??"
+        fn, ln = obj.author.first_name, obj.author.last_name
+        if fn and ln:
+            return f"{fn[0]}{ln[0]}".upper()
+        return (obj.author.username[:2]).upper()
+
+    def get_reply_to_preview(self, obj):
+        if not obj.reply_to_id:
+            return None
+        parent = obj.reply_to
+        return {
+            "id": parent.id,
+            "author_username": parent.author.username if parent.author_id else "deleted",
+            "body_preview": parent.body[:100],
+        }
+
+    def get_reactions_summary(self, obj):
+        from django.db.models import Count
+        request = self.context.get("request")
+        current_user_id = request.user.id if request else None
+        agg = (
+            MessageReaction.objects.filter(message=obj)
+            .values("emoji")
+            .annotate(count=Count("id"))
+        )
+        my_emojis = set()
+        if current_user_id:
+            my_emojis = set(
+                MessageReaction.objects.filter(message=obj, user_id=current_user_id)
+                .values_list("emoji", flat=True)
+            )
+        return [
+            {"emoji": row["emoji"], "count": row["count"], "reacted": row["emoji"] in my_emojis}
+            for row in agg
+        ]
+
+
+class ChatRoomSerializer(serializers.ModelSerializer):
+    hostel_name  = serializers.CharField(source="hostel.name", read_only=True)
+    hostel_slug  = serializers.CharField(source="hostel.slug", read_only=True)
+    member_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    members      = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatRoom
+        fields = (
+            "id", "room_type", "name", "unique_key",
+            "hostel", "hostel_name", "hostel_slug",
+            "block", "room_number",
+            "member_count", "last_message", "unread_count",
+            "members", "created_at",
+        )
+
+    def get_member_count(self, obj):
+        return obj.memberships.filter(is_active=True).count()
+
+    def get_last_message(self, obj):
+        msg = obj.messages.select_related("author").last()
+        if not msg:
+            return None
+        return {
+            "id": msg.id,
+            "author_username": msg.author.username if msg.author_id else "deleted",
+            "body_preview": msg.body[:80],
+            "created_at": msg.created_at.isoformat(),
+        }
+
+    def get_unread_count(self, obj):
+        request = self.context.get("request")
+        if not request:
+            return 0
+        membership = obj.memberships.filter(user=request.user, is_active=True).first()
+        if not membership:
+            return 0
+        if not membership.last_read_at:
+            return obj.messages.count()
+        return obj.messages.filter(created_at__gt=membership.last_read_at).count()
+
+    def get_members(self, obj):
+        memberships = obj.memberships.filter(is_active=True).select_related("user")
+        return ChatMemberSerializer(memberships, many=True).data

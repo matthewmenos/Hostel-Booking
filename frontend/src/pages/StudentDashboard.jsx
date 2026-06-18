@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2 } from "lucide-react";
+import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users } from "lucide-react";
 import { bookingApi, authApi, notifApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
+import { useChat } from "../context/ChatContext.jsx";
 import { SkeletonBookingRow } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
@@ -15,6 +16,7 @@ const UNI_CATEGORIES = [
 
 const TABS = [
   { id: "bookings", label: "My Bookings" },
+  { id: "groups",   label: "My Groups" },
   { id: "report",   label: "Report Issue" },
   { id: "profile",  label: "Profile" },
 ];
@@ -45,6 +47,7 @@ export default function StudentDashboard() {
       </div>
 
       {tab === "bookings" && <BookingsTab />}
+      {tab === "groups"   && <GroupsPreviewTab />}
       {tab === "report"   && <ReportTab />}
       {tab === "profile"  && <ProfileTab />}
     </div>
@@ -377,5 +380,68 @@ function ReportTab() {
         {busy ? "Submitting…" : "Submit Report"}
       </button>
     </form>
+  );
+}
+
+// ── Groups preview tab ────────────────────────────────────────────────────────
+
+function GroupsPreviewTab() {
+  const navigate = useNavigate();
+  const { rooms, loadingRooms, unreadCount } = useChat();
+
+  if (loadingRooms) return (
+    <div className="flex justify-center py-16">
+      <span className="h-7 w-7 animate-spin rounded-full border-4 border-brand border-t-transparent" />
+    </div>
+  );
+
+  if (rooms.length === 0) return (
+    <div className="flex flex-col items-center gap-3 py-20 text-gray-400 text-center">
+      <MessageSquare size={40} />
+      <p className="font-medium text-gray-600">No groups yet</p>
+      <p className="text-sm max-w-xs">Your roommate and hostel groups will appear here once your booking is approved.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {rooms.map((room) => (
+        <div key={room.id}
+          className="card flex items-center gap-4 p-4 cursor-pointer hover:shadow-md transition"
+          onClick={() => navigate(`/chat/${room.id}`)}>
+          <div className="h-10 w-10 shrink-0 rounded-full bg-brand/10 flex items-center justify-center">
+            {room.room_type === "room_group"
+              ? <Users size={18} className="text-brand" />
+              : <MessageSquare size={18} className="text-brand" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-sm truncate">{room.name}</p>
+              {room.unread_count > 0 && (
+                <span className="shrink-0 rounded-full bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 leading-none">
+                  {room.unread_count > 9 ? "9+" : room.unread_count}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+              <Users size={10} /> {room.member_count} member{room.member_count !== 1 ? "s" : ""}
+            </p>
+            {room.last_message ? (
+              <p className="text-xs text-gray-500 truncate mt-0.5">
+                <span className="font-medium">{room.last_message.author_username}:</span>{" "}
+                {room.last_message.body_preview}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 italic mt-0.5">No messages yet</p>
+            )}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/chat/${room.id}`); }}
+            className="btn-secondary text-xs shrink-0">
+            Open Chat
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }

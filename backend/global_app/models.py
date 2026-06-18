@@ -296,3 +296,99 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Notif → {self.recipient.username}: {self.title}"
+
+
+# ---------------------------------------------------------------------------
+# Group Chat models
+# ---------------------------------------------------------------------------
+
+class ChatRoomType(models.TextChoices):
+    HOSTEL_WIDE = "hostel_wide", "Hostel-Wide"
+    ROOM_GROUP  = "room_group",  "Room Group"
+
+
+class ChatRoom(models.Model):
+    """
+    A group chat room. Two kinds:
+      hostel_wide — one per hostel, all PAID students.
+      room_group  — one per physical room, students sharing that room.
+
+    Room identity is stored as plain strings to avoid cross-DB foreign keys.
+    unique_key is used for get-or-create lookups.
+    """
+    room_type   = models.CharField(max_length=20, choices=ChatRoomType.choices)
+    hostel      = models.ForeignKey(
+        TenantHostel, related_name="chat_rooms", on_delete=models.CASCADE
+    )
+    name        = models.CharField(max_length=200)
+    unique_key  = models.CharField(max_length=200, unique=True, db_index=True)
+    block       = models.CharField(max_length=50, blank=True)
+    room_number = models.CharField(max_length=20, blank=True)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("room_type", "name")
+
+    def __str__(self):
+        return f"ChatRoom [{self.room_type}] {self.name}"
+
+
+class ChatMembership(models.Model):
+    """Links a User to a ChatRoom. Deactivated (not deleted) on booking cancel/refund."""
+    room        = models.ForeignKey(ChatRoom, related_name="memberships", on_delete=models.CASCADE)
+    user        = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="chat_memberships", on_delete=models.CASCADE
+    )
+    booking_ref = models.IntegerField(db_index=True)
+    is_active   = models.BooleanField(default=True, db_index=True)
+    last_read_at = models.DateTimeField(null=True, blank=True)
+    joined_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("room", "user")
+        indexes = [
+            models.Index(fields=["user", "is_active"]),
+            models.Index(fields=["booking_ref"]),
+        ]
+
+    def __str__(self):
+        status = "active" if self.is_active else "inactive"
+        return f"{self.user.username} in {self.room} [{status}]"
+
+
+class ChatMessage(models.Model):
+    """A message in a ChatRoom. Supports one-level reply threading."""
+    room      = models.ForeignKey(ChatRoom, related_name="messages", on_delete=models.CASCADE)
+    author    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="chat_messages",
+        on_delete=models.SET_NULL, null=True
+    )
+    body      = models.TextField()
+    reply_to  = models.ForeignKey(
+        "self", null=True, blank=True,
+        related_name="replies", on_delete=models.SET_NULL
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("created_at",)
+        indexes = [models.Index(fields=["room", "created_at"])]
+
+    def __str__(self):
+        return f"Msg #{self.pk} in {self.room} by {self.author}"
+
+
+class MessageReaction(models.Model):
+    """An emoji reaction from a user on a message. Toggle = delete-or-create."""
+    message = models.ForeignKey(ChatMessage, related_name="reactions", on_delete=models.CASCADE)
+    user    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="message_reactions", on_delete=models.CASCADE
+    )
+    emoji   = models.CharField(max_length=10)
+
+    class Meta:
+        unique_together = ("message", "user", "emoji")
+
+    def __str__(self):
+        return f"{self.emoji} by {self.user.username} on msg #{self.message_id}"

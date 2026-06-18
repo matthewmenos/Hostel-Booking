@@ -860,18 +860,18 @@ function MessagesTab({ hostels, activeSlug }) {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!title.trim()) { addToast("Please enter a message title.", "error"); return; }
-    if (!hostelSlug) { addToast("Please select a hostel.", "error"); return; }
-    if (msgType === "direct" && !studentId) { addToast("Please select a student.", "error"); return; }
+    if (!title.trim()) { addToast("error", "Please enter a message title."); return; }
+    if (!hostelSlug) { addToast("error", "Please select a hostel."); return; }
+    if (msgType === "direct" && !studentId) { addToast("error", "Please select a student."); return; }
     setSending(true);
     try {
       const payload = { type: msgType, hostel_slug: hostelSlug, title: title.trim(), body: body.trim() };
       if (msgType === "direct") payload.student_id = studentId;
       const { data } = await notifApi.send(payload);
-      addToast(`Message sent to ${data.sent_to} student${data.sent_to !== 1 ? "s" : ""}.`, "success");
+      addToast("success", `Message sent to ${data.sent_to} student${data.sent_to !== 1 ? "s" : ""}.`);
       setTitle(""); setBody(""); setStudentId("");
     } catch (err) {
-      addToast(err.response?.data?.detail ?? "Failed to send message.", "error");
+      addToast("error", err.response?.data?.detail ?? "Failed to send message.");
     } finally {
       setSending(false);
     }

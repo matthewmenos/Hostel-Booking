@@ -68,6 +68,16 @@ export const tenantApi = {
   deleteAnnouncement: (slug, id) => api.delete(`/tenant/announcements/${id}/`, { tenant: slug }),
 };
 
+export const chatApi = {
+  rooms:       ()              => api.get("/chat/rooms/"),
+  room:        (id)            => api.get(`/chat/rooms/${id}/`),
+  messages:    (id, params)    => api.get(`/chat/rooms/${id}/messages/`, { params }),
+  postMessage: (id, payload)   => api.post(`/chat/rooms/${id}/messages/`, payload),
+  react:       (msgId, emoji)  => api.post(`/chat/messages/${msgId}/react/`, { emoji }),
+  markRead:    (id)            => api.post(`/chat/rooms/${id}/mark-read/`),
+  unreadCount: ()              => api.get("/chat/unread-count/"),
+};
+
 export const adminApi = {
   // Overview
   overview:          () => api.get("/admin/overview/"),

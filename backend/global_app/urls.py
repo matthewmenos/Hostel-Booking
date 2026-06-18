@@ -32,6 +32,12 @@ from .views import (
     HostelImageListView,
     HostelImageDeleteView,
     BookingReceiptView,
+    NotificationListView,
+    NotificationUnreadCountView,
+    NotificationMarkReadView,
+    NotificationMarkAllReadView,
+    SendNotificationView,
+    SendReportView,
 )
 
 router = DefaultRouter()
@@ -73,6 +79,13 @@ urlpatterns = [
     # Superadmin — verifications
     path("admin/verifications/", AdminVerificationListView.as_view(), name="admin-verifications"),
     path("admin/verifications/<int:pk>/<str:action>/", AdminVerificationDecideView.as_view(), name="admin-verification-decide"),
+    # Notifications
+    path("notifications/", NotificationListView.as_view(), name="notifications"),
+    path("notifications/unread-count/", NotificationUnreadCountView.as_view(), name="notifications-unread-count"),
+    path("notifications/read-all/", NotificationMarkAllReadView.as_view(), name="notifications-read-all"),
+    path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view(), name="notification-read"),
+    path("notifications/send/", SendNotificationView.as_view(), name="notifications-send"),
+    path("notifications/report/", SendReportView.as_view(), name="notifications-report"),
     # Superadmin — bookings
     path("admin/bookings/", AdminBookingsView.as_view(), name="admin-bookings"),
     path("admin/bookings/<int:pk>/refund/", AdminRefundBookingView.as_view(), name="admin-booking-refund"),

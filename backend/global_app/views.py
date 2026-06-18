@@ -33,7 +33,7 @@ from tenants.context import set_current_tenant, clear_current_tenant
 
 from .models import (
     TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus,
-    ManagerVerification, VerificationStatus,
+    ManagerVerification, VerificationStatus, Notification, NotifType,
 )
 from .serializers import (
     TenantHostelSerializer,
@@ -43,7 +43,9 @@ from .serializers import (
     AdminUserSerializer,
     ManagerVerificationSerializer,
     ManagerVerificationAdminSerializer,
+    NotificationSerializer,
 )
+from .notifications import notify, notify_many
 from .permissions import IsManager, IsOwnerOrReadOnly, IsSuperAdmin
 from . import payments as payment_gateway
 
@@ -398,6 +400,13 @@ class AdminHostelActivateView(generics.GenericAPIView):
         hostel = get_object_or_404(TenantHostel, slug=slug)
         hostel.is_active = True
         hostel.save(update_fields=["is_active"])
+        notify(
+            hostel.owner,
+            notif_type=NotifType.HOSTEL_ACTIVATED,
+            title=f"{hostel.name} Reactivated",
+            body="Your hostel listing has been reactivated and is visible to students.",
+            link="/manager",
+        )
         return Response(TenantHostelSerializer(hostel).data)
 
 
@@ -410,6 +419,13 @@ class AdminHostelDeactivateView(generics.GenericAPIView):
         hostel = get_object_or_404(TenantHostel, slug=slug)
         hostel.is_active = False
         hostel.save(update_fields=["is_active"])
+        notify(
+            hostel.owner,
+            notif_type=NotifType.HOSTEL_DEACTIVATED,
+            title=f"{hostel.name} Deactivated",
+            body="Your hostel listing has been deactivated by the admin and is no longer visible to students.",
+            link="/manager",
+        )
         return Response(TenantHostelSerializer(hostel).data)
 
 
@@ -441,6 +457,15 @@ class AdminRefundBookingView(generics.GenericAPIView):
             )
         booking.payment_status = PaymentStatus.REFUNDED
         booking.save(update_fields=["payment_status"])
+
+        notify(
+            booking.student,
+            notif_type=NotifType.BOOKING_CANCELLED,
+            title="Booking Refunded",
+            body=f"Your booking at {booking.hostel.name} has been refunded by the admin.",
+            link="/dashboard",
+        )
+
         return Response(GlobalBookingSerializer(booking).data)
 
 
@@ -471,6 +496,13 @@ class AdminVerificationDecideView(generics.GenericAPIView):
             verif.save(update_fields=["status", "rejection_reason", "reviewed_at"])
             verif.manager.is_verified = True
             verif.manager.save(update_fields=["is_verified"])
+            notify(
+                verif.manager,
+                notif_type=NotifType.VERIF_APPROVED,
+                title="Identity Verification Approved!",
+                body="Your identity has been verified. You can now list hostels on HostelHub.",
+                link="/manager",
+            )
 
         elif action == "reject":
             reason = request.data.get("rejection_reason", "").strip()
@@ -485,6 +517,13 @@ class AdminVerificationDecideView(generics.GenericAPIView):
             verif.save(update_fields=["status", "rejection_reason", "reviewed_at"])
             verif.manager.is_verified = False
             verif.manager.save(update_fields=["is_verified"])
+            notify(
+                verif.manager,
+                notif_type=NotifType.VERIF_REJECTED,
+                title="Identity Verification Rejected",
+                body=f"Your verification was rejected. Reason: {reason}",
+                link="/manager/verification",
+            )
 
         else:
             return Response({"detail": "Invalid action."}, status=status.HTTP_400_BAD_REQUEST)
@@ -559,6 +598,15 @@ class PaystackWebhookView(APIView):
         # Send confirmation email to student.
         _send_booking_confirmation(booking, payment)
 
+        # Notify hostel manager that a student has paid.
+        notify(
+            booking.hostel.owner,
+            notif_type=NotifType.BOOKING_PAID,
+            title="New Booking Payment Received",
+            body=f"{booking.student.get_full_name() or booking.student.username} paid GHS {payment.amount} for a bed at {booking.hostel.name}.",
+            link="/manager",
+        )
+
         logger.info("Webhook: booking #%s moved to paid_awaiting_approval", booking.pk)
         return HttpResponse(status=200)
 
@@ -628,6 +676,14 @@ class AdminApproveBookingView(generics.GenericAPIView):
 
         payment.status = PaymentStatus.PAID
         payment.save(update_fields=["status"])
+
+        notify(
+            booking.student,
+            notif_type=NotifType.BOOKING_APPROVED,
+            title="Booking Approved!",
+            body=f"Your booking at {booking.hostel.name} has been approved and your bed is confirmed.",
+            link="/dashboard",
+        )
 
         return Response({
             "booking": GlobalBookingSerializer(booking).data,
@@ -850,6 +906,14 @@ class AdminVerifyHostelView(generics.GenericAPIView):
         hostel = get_object_or_404(TenantHostel, slug=slug)
         hostel.is_verified = not hostel.is_verified
         hostel.save(update_fields=["is_verified"])
+        if hostel.is_verified:
+            notify(
+                hostel.owner,
+                notif_type=NotifType.HOSTEL_VERIFIED,
+                title=f"{hostel.name} is now Verified",
+                body="Your hostel has been granted the verified badge by the admin.",
+                link="/manager",
+            )
         return Response(TenantHostelSerializer(hostel).data)
 
 
@@ -1104,3 +1168,167 @@ class AdminSettingsView(APIView):
             "ADMIN_USERNAME":          __import__("os").getenv("ADMIN_USERNAME", ""),
             "ADMIN_EMAIL":             __import__("os").getenv("ADMIN_EMAIL", ""),
         }
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+class NotificationListView(generics.ListAPIView):
+    """Return the current user's notifications, newest first."""
+
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Notification.objects.filter(recipient=self.request.user)
+        notif_type = self.request.query_params.get("type")
+        if notif_type:
+            qs = qs.filter(notif_type=notif_type)
+        unread = self.request.query_params.get("unread")
+        if unread == "1":
+            qs = qs.filter(is_read=False)
+        return qs
+
+
+class NotificationUnreadCountView(APIView):
+    """Lightweight endpoint for the bell badge count."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        count = Notification.objects.filter(
+            recipient=request.user, is_read=False
+        ).count()
+        return Response({"count": count})
+
+
+class NotificationMarkReadView(generics.GenericAPIView):
+    """Mark a single notification as read."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        notif = get_object_or_404(Notification, pk=pk, recipient=request.user)
+        if not notif.is_read:
+            notif.is_read = True
+            notif.save(update_fields=["is_read"])
+        return Response({"id": notif.pk, "is_read": True})
+
+
+class NotificationMarkAllReadView(APIView):
+    """Mark all of the current user's unread notifications as read."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        updated = Notification.objects.filter(
+            recipient=request.user, is_read=False
+        ).update(is_read=True)
+        return Response({"marked_read": updated})
+
+
+class SendNotificationView(APIView):
+    """
+    Manager sends a message to their hostel tenants.
+
+    Body: { type: "broadcast"|"direct", hostel_slug, title, body, student_id? }
+    """
+
+    permission_classes = [IsManager]
+
+    def post(self, request):
+        msg_type   = request.data.get("type", "broadcast")
+        hostel_slug = request.data.get("hostel_slug", "")
+        title      = request.data.get("title", "").strip()
+        body       = request.data.get("body", "").strip()
+        student_id = request.data.get("student_id")
+
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        hostel = get_object_or_404(TenantHostel, slug=hostel_slug, owner=request.user)
+
+        paid_statuses = [PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID]
+
+        if msg_type == "broadcast":
+            student_ids = GlobalBooking.objects.filter(
+                hostel=hostel, payment_status__in=paid_statuses
+            ).values_list("student_id", flat=True).distinct()
+            recipients = User.objects.filter(pk__in=student_ids)
+            notify_many(
+                recipients,
+                notif_type=NotifType.MSG_BROADCAST,
+                title=title,
+                body=body,
+                sender=request.user,
+                link="/dashboard",
+            )
+            return Response({"sent_to": recipients.count()})
+
+        elif msg_type == "direct":
+            if not student_id:
+                return Response({"detail": "student_id is required for direct messages."}, status=status.HTTP_400_BAD_REQUEST)
+            # Verify the student is booked at this hostel.
+            booked = GlobalBooking.objects.filter(
+                hostel=hostel,
+                student_id=student_id,
+                payment_status__in=paid_statuses,
+            ).exists()
+            if not booked:
+                return Response({"detail": "Student has no active booking at this hostel."}, status=status.HTTP_400_BAD_REQUEST)
+            recipient = get_object_or_404(User, pk=student_id)
+            notify(
+                recipient,
+                notif_type=NotifType.MSG_DIRECT,
+                title=title,
+                body=body,
+                sender=request.user,
+                link="/dashboard",
+            )
+            return Response({"sent_to": 1})
+
+        return Response({"detail": "type must be 'broadcast' or 'direct'."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SendReportView(APIView):
+    """
+    Student reports a maintenance/problem issue.
+    Auto-detects their hostel from the latest active booking.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        title = request.data.get("title", "").strip()
+        body  = request.data.get("body", "").strip()
+
+        if not title:
+            return Response({"detail": "title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        paid_statuses = [PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID]
+        booking = (
+            GlobalBooking.objects.filter(
+                student=request.user, payment_status__in=paid_statuses
+            )
+            .select_related("hostel__owner")
+            .order_by("-created_at")
+            .first()
+        )
+        if not booking:
+            return Response(
+                {"detail": "No active booking found. You can only report issues for hostels you are currently booked at."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        manager = booking.hostel.owner
+        sender_name = request.user.get_full_name() or request.user.username
+        notify(
+            manager,
+            notif_type=NotifType.REPORT,
+            title=f"Maintenance Report: {title}",
+            body=f"From {sender_name} ({booking.hostel.name}): {body}",
+            sender=request.user,
+            link="/manager",
+        )
+        return Response({"detail": "Report submitted successfully."})

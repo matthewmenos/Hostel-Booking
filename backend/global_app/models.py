@@ -259,3 +259,40 @@ class ManagerVerification(models.Model):
 
     def __str__(self):
         return f"Verification — {self.manager.username} [{self.status}]"
+
+
+class NotifType(models.TextChoices):
+    MSG_BROADCAST     = "msg_broadcast",     "Broadcast Message"
+    MSG_DIRECT        = "msg_direct",        "Direct Message"
+    REPORT            = "report",            "Maintenance Report"
+    BOOKING_PAID      = "booking_paid",      "Booking Payment Received"
+    BOOKING_APPROVED  = "booking_approved",  "Booking Approved"
+    BOOKING_CANCELLED = "booking_cancelled", "Booking Cancelled"
+    HOSTEL_VERIFIED   = "hostel_verified",   "Hostel Verified"
+    HOSTEL_ACTIVATED  = "hostel_activated",  "Hostel Activated"
+    HOSTEL_DEACTIVATED= "hostel_deactivated","Hostel Deactivated"
+    VERIF_APPROVED    = "verif_approved",    "Verification Approved"
+    VERIF_REJECTED    = "verif_rejected",    "Verification Rejected"
+
+
+class Notification(models.Model):
+    recipient  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="notifications", on_delete=models.CASCADE
+    )
+    sender     = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="sent_notifications",
+        null=True, blank=True, on_delete=models.SET_NULL
+    )
+    notif_type = models.CharField(max_length=30, choices=NotifType.choices)
+    title      = models.CharField(max_length=200)
+    body       = models.TextField(blank=True)
+    is_read    = models.BooleanField(default=False)
+    link       = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["recipient", "is_read"])]
+
+    def __str__(self):
+        return f"Notif → {self.recipient.username}: {self.title}"

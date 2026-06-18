@@ -27,6 +27,15 @@ export const managerApi = {
   submitVerification: (fd) => api.post("/manager/verification/", fd),
 };
 
+export const notifApi = {
+  list:        (params) => api.get("/notifications/", { params }),
+  unreadCount: () => api.get("/notifications/unread-count/"),
+  markRead:    (id) => api.post(`/notifications/${id}/read/`),
+  markAllRead: () => api.post("/notifications/read-all/"),
+  send:        (payload) => api.post("/notifications/send/", payload),
+  report:      (payload) => api.post("/notifications/report/", payload),
+};
+
 export const bookingApi = {
   myBookings:     () => api.get("/bookings/"),
   book:           (payload) => api.post("/book/", payload),

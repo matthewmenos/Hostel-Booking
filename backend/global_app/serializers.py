@@ -2,7 +2,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification
+from .models import TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification, Notification
 
 
 class HostelImageSerializer(serializers.ModelSerializer):
@@ -138,3 +138,21 @@ class ManagerVerificationAdminSerializer(serializers.ModelSerializer):
             "status", "rejection_reason", "submitted_at", "reviewed_at",
         )
         read_only_fields = fields
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    sender_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = (
+            "id", "notif_type", "title", "body",
+            "is_read", "link", "created_at", "sender_username",
+        )
+        read_only_fields = (
+            "id", "notif_type", "title", "body",
+            "link", "created_at", "sender_username",
+        )
+
+    def get_sender_username(self, obj):
+        return obj.sender.username if obj.sender_id else None

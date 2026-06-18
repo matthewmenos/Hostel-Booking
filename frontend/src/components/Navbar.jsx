@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Building2, LogOut, LayoutDashboard, Search, Menu, X, ShieldCheck } from "lucide-react";
+import { Building2, LogOut, LayoutDashboard, Search, Menu, X, ShieldCheck, Bell } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
+import { useNotifications } from "../context/NotificationContext.jsx";
 
 function dashboardPath(role) {
   if (role === "superadmin") return "/admin";
@@ -55,6 +56,127 @@ function ThemeToggle({ className = "" }) {
   );
 }
 
+const TYPE_ICON = {
+  msg_broadcast: "📢",
+  msg_direct: "💬",
+  report: "🔧",
+  booking_paid: "💳",
+  booking_approved: "✅",
+  booking_cancelled: "❌",
+  hostel_verified: "🏅",
+  hostel_activated: "🟢",
+  hostel_deactivated: "🔴",
+  verif_approved: "🎉",
+  verif_rejected: "⚠️",
+};
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function NotificationDropdown({ onClose }) {
+  const { notifications, unreadCount, markRead, markAllRead, loadNotifications } = useNotifications();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const handleClick = async (notif) => {
+    if (!notif.is_read) await markRead(notif.id);
+    onClose();
+    if (notif.link) navigate(notif.link);
+  };
+
+  return (
+    <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-xl border border-gray-200 bg-white shadow-2xl z-50 dark:border-gray-700 dark:bg-gray-900 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+        <span className="font-semibold text-sm">Notifications</span>
+        <div className="flex items-center gap-3">
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllRead}
+              className="text-xs text-brand hover:underline"
+            >
+              Mark all read
+            </button>
+          )}
+          <Link
+            to="/notifications"
+            onClick={onClose}
+            className="text-xs text-gray-400 hover:text-brand"
+          >
+            See all
+          </Link>
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="max-h-96 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-800">
+        {notifications.length === 0 ? (
+          <div className="py-10 text-center text-sm text-gray-400">No notifications yet</div>
+        ) : (
+          notifications.slice(0, 20).map((n) => (
+            <button
+              key={n.id}
+              onClick={() => handleClick(n)}
+              className={`w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition ${!n.is_read ? "bg-brand/5 dark:bg-brand/10" : ""}`}
+            >
+              <span className="text-xl leading-none mt-0.5 shrink-0">{TYPE_ICON[n.notif_type] ?? "🔔"}</span>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm truncate ${!n.is_read ? "font-semibold" : ""}`}>{n.title}</p>
+                {n.body && <p className="text-xs text-gray-500 truncate mt-0.5">{n.body}</p>}
+                <p className="text-xs text-gray-400 mt-0.5">{timeAgo(n.created_at)}</p>
+              </div>
+              {!n.is_read && (
+                <span className="mt-1.5 h-2 w-2 rounded-full bg-brand shrink-0" />
+              )}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BellButton({ className = "" }) {
+  const { unreadCount } = useNotifications();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Notifications"
+        className="relative rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-brand dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-brand-light"
+      >
+        <Bell size={18} />
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+      {open && <NotificationDropdown onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
 export default function Navbar() {
   const { user, isAuthed, logout } = useAuth();
   const navigate = useNavigate();
@@ -102,11 +224,13 @@ export default function Navbar() {
           </Link>
           {authLinks}
           <ThemeToggle />
+          {isAuthed && <BellButton />}
         </div>
 
-        {/* Mobile: theme toggle + hamburger */}
+        {/* Mobile: theme toggle + bell + hamburger */}
         <div className="flex items-center gap-1 sm:hidden">
           <ThemeToggle />
+          {isAuthed && <BellButton />}
           <button className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             onClick={() => setOpen((v) => !v)}>
             {open ? <X size={22}/> : <Menu size={22}/>}

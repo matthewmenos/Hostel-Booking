@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
   Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2,
   Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
-  ShieldAlert, Clock, AlertCircle,
+  ShieldAlert, Clock, AlertCircle, MessageSquare, Wrench,
 } from "lucide-react";
-import { hostelApi, tenantApi, bookingApi, managerApi } from "../api/endpoints.js";
+import { hostelApi, tenantApi, bookingApi, managerApi, notifApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonStatCard, SkeletonBookingRow } from "../components/Skeleton.jsx";
@@ -17,6 +17,7 @@ const TABS = [
   { id: "gallery",       label: "Gallery" },
   { id: "announcements", label: "Announcements" },
   { id: "bookings",      label: "Bookings" },
+  { id: "messages",      label: "Messages" },
   { id: "analytics",     label: "Analytics" },
 ];
 
@@ -192,6 +193,7 @@ export default function ManagerPortal() {
       {tab === "gallery"       && <GalleryTab slug={active} hostels={hostels} active={active} onHostelUpdated={(updated) => setHostels((prev) => prev.map((h) => h.slug === updated.slug ? updated : h))} />}
       {tab === "announcements" && <AnnouncementsTab slug={active} />}
       {tab === "bookings"      && <BookingsTab slug={active} hostels={hostels} />}
+      {tab === "messages"      && <MessagesTab hostels={hostels} activeSlug={active} />}
       {tab === "analytics"     && <AnalyticsTab />}
     </div>
   );
@@ -811,6 +813,174 @@ function AnalyticsTab() {
           {data.hostels.length === 0 && <p className="text-sm text-gray-400">No hostel data yet.</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Messages tab ──────────────────────────────────────────────────────────────
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function MessagesTab({ hostels, activeSlug }) {
+  const { addToast } = useToast();
+  const [subTab, setSubTab]       = useState("send");
+  const [msgType, setMsgType]     = useState("broadcast");
+  const [hostelSlug, setHostelSlug] = useState(activeSlug ?? "");
+  const [title, setTitle]         = useState("");
+  const [body, setBody]           = useState("");
+  const [studentId, setStudentId] = useState("");
+  const [students, setStudents]   = useState([]);
+  const [sending, setSending]     = useState(false);
+  const [reports, setReports]     = useState([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+
+  // Load students for the selected hostel when switching to direct
+  useEffect(() => {
+    if (msgType !== "direct" || !hostelSlug) return;
+    bookingApi.managerBookings(hostelSlug).then(({ data }) => {
+      const list = data.results ?? data;
+      const seen = new Set();
+      const unique = [];
+      list.forEach((b) => {
+        if (!seen.has(b.student)) {
+          seen.add(b.student);
+          unique.push({ id: b.student, username: b.student_username });
+        }
+      });
+      setStudents(unique);
+    }).catch(() => setStudents([]));
+  }, [msgType, hostelSlug]);
+
+  // Load incoming reports
+  useEffect(() => {
+    if (subTab !== "reports") return;
+    setLoadingReports(true);
+    notifApi.list({ type: "report" })
+      .then(({ data }) => setReports(Array.isArray(data) ? data : (data.results ?? [])))
+      .catch(() => setReports([]))
+      .finally(() => setLoadingReports(false));
+  }, [subTab]);
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { addToast("Please enter a message title.", "error"); return; }
+    if (!hostelSlug) { addToast("Please select a hostel.", "error"); return; }
+    if (msgType === "direct" && !studentId) { addToast("Please select a student.", "error"); return; }
+    setSending(true);
+    try {
+      const payload = { type: msgType, hostel_slug: hostelSlug, title: title.trim(), body: body.trim() };
+      if (msgType === "direct") payload.student_id = studentId;
+      const { data } = await notifApi.send(payload);
+      addToast(`Message sent to ${data.sent_to} student${data.sent_to !== 1 ? "s" : ""}.`, "success");
+      setTitle(""); setBody(""); setStudentId("");
+    } catch (err) {
+      addToast(err.response?.data?.detail ?? "Failed to send message.", "error");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-tabs */}
+      <div className="flex border-b border-gray-200 dark:border-gray-700">
+        {[{ id: "send", label: "Send Message", icon: MessageSquare },
+          { id: "reports", label: "Maintenance Reports", icon: Wrench }].map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setSubTab(id)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition
+              ${subTab === id ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "send" && (
+        <form onSubmit={handleSend} className="card p-6 space-y-4 max-w-xl">
+          {/* Hostel picker */}
+          <div>
+            <label className="label">Hostel</label>
+            <select className="input" value={hostelSlug} onChange={(e) => setHostelSlug(e.target.value)}>
+              {hostels.map((h) => <option key={h.slug} value={h.slug}>{h.name}</option>)}
+            </select>
+          </div>
+
+          {/* Message type */}
+          <div>
+            <label className="label">Send to</label>
+            <div className="flex gap-3">
+              {[{ v: "broadcast", label: "All tenants" }, { v: "direct", label: "Specific student" }].map(({ v, label }) => (
+                <label key={v} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition
+                  ${msgType === v ? "border-brand bg-brand/5 text-brand" : "border-gray-200 dark:border-gray-700"}`}>
+                  <input type="radio" className="hidden" value={v} checked={msgType === v} onChange={() => setMsgType(v)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Student picker (direct only) */}
+          {msgType === "direct" && (
+            <div>
+              <label className="label">Student</label>
+              <select className="input" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+                <option value="">— Select student —</option>
+                {students.map((s) => <option key={s.id} value={s.id}>{s.username}</option>)}
+              </select>
+              {students.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">No students with active bookings at this hostel.</p>
+              )}
+            </div>
+          )}
+
+          {/* Title */}
+          <div>
+            <label className="label">Title</label>
+            <input className="input" placeholder="e.g. Water outage notice" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </div>
+
+          {/* Body */}
+          <div>
+            <label className="label">Message (optional)</label>
+            <textarea className="input min-h-[80px]" placeholder="Additional details..." value={body} onChange={(e) => setBody(e.target.value)} />
+          </div>
+
+          <button type="submit" disabled={sending} className="btn-primary">
+            {sending ? "Sending…" : "Send Message"}
+          </button>
+        </form>
+      )}
+
+      {subTab === "reports" && (
+        <div className="space-y-2">
+          {loadingReports ? (
+            <div className="flex justify-center py-10">
+              <span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="card p-8 text-center text-gray-400">
+              <Wrench size={32} className="mx-auto mb-2" />
+              <p className="text-sm">No maintenance reports yet</p>
+            </div>
+          ) : (
+            reports.map((r) => (
+              <div key={r.id} className={`card px-4 py-3 flex items-start gap-3 ${!r.is_read ? "border-l-4 border-amber-400" : ""}`}>
+                <span className="text-xl">🔧</span>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm ${!r.is_read ? "font-semibold" : ""}`}>{r.title}</p>
+                  {r.body && <p className="text-sm text-gray-500 mt-0.5">{r.body}</p>}
+                  <p className="text-xs text-gray-400 mt-1">{r.sender_username} · {timeAgo(r.created_at)}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

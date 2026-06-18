@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Download } from "lucide-react";
-import { bookingApi, authApi } from "../api/endpoints.js";
+import { ExternalLink, Download, Wrench } from "lucide-react";
+import { bookingApi, authApi, notifApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonBookingRow } from "../components/Skeleton.jsx";
@@ -14,6 +14,7 @@ const UNI_GROUPS = [
 
 const TABS = [
   { id: "bookings", label: "My Bookings" },
+  { id: "report",   label: "Report Issue" },
   { id: "profile",  label: "Profile" },
 ];
 
@@ -38,6 +39,7 @@ export default function StudentDashboard() {
       </div>
 
       {tab === "bookings" && <BookingsTab />}
+      {tab === "report"   && <ReportTab />}
       {tab === "profile"  && <ProfileTab />}
     </div>
   );
@@ -215,6 +217,109 @@ function ProfileTab() {
 
       <button className="btn-primary w-full" disabled={busy}>
         {busy ? "Saving…" : "Save changes"}
+      </button>
+    </form>
+  );
+}
+
+// ── Report Issue tab ──────────────────────────────────────────────────────────
+
+function ReportTab() {
+  const { addToast } = useToast();
+  const [bookings, setBookings] = useState([]);
+  const [loadingBookings, setLoadingBookings] = useState(true);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    bookingApi.myBookings()
+      .then(({ data }) => setBookings(data.results ?? data))
+      .finally(() => setLoadingBookings(false));
+  }, []);
+
+  const activeBooking = bookings.find((b) =>
+    b.payment_status === "paid_awaiting_approval" || b.payment_status === "paid"
+  );
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { addToast("Please enter a title for your report.", "error"); return; }
+    setBusy(true);
+    try {
+      await notifApi.report({ title: title.trim(), body: body.trim() });
+      setDone(true);
+      setTitle("");
+      setBody("");
+    } catch (err) {
+      addToast(err.response?.data?.detail ?? "Failed to submit report.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loadingBookings) return (
+    <div className="flex justify-center py-16">
+      <span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
+    </div>
+  );
+
+  if (!activeBooking) return (
+    <div className="card p-8 text-center space-y-3 text-gray-400">
+      <Wrench size={36} className="mx-auto" />
+      <p className="text-sm">You need an active booking to report an issue.</p>
+      <p className="text-xs">Reports are automatically sent to the manager of your booked hostel.</p>
+    </div>
+  );
+
+  if (done) return (
+    <div className="card p-8 text-center space-y-3">
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+        <span className="text-3xl">✅</span>
+      </div>
+      <h3 className="font-bold text-lg">Report Submitted</h3>
+      <p className="text-gray-500 text-sm">
+        Your report has been sent to the manager of <strong>{activeBooking.hostel_name}</strong>.
+        They will look into it shortly.
+      </p>
+      <button className="btn-primary" onClick={() => setDone(false)}>Submit another</button>
+    </div>
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="card p-6 space-y-4 max-w-lg">
+      <div className="flex items-center gap-2 mb-1">
+        <Wrench size={18} className="text-brand" />
+        <h3 className="font-semibold">Report a Maintenance Issue</h3>
+      </div>
+      <p className="text-sm text-gray-500">
+        Reporting to: <span className="font-medium text-gray-700 dark:text-gray-300">{activeBooking.hostel_name}</span>
+      </p>
+
+      <div>
+        <label className="label">Issue Title</label>
+        <input
+          className="input"
+          placeholder="e.g. Broken pipe in bathroom"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+      </div>
+
+      <div>
+        <label className="label">Description (optional)</label>
+        <textarea
+          className="input min-h-[100px]"
+          placeholder="Describe the problem in more detail..."
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </div>
+
+      <button type="submit" className="btn-primary w-full" disabled={busy}>
+        {busy ? "Submitting…" : "Submit Report"}
       </button>
     </form>
   );

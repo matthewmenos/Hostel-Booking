@@ -11,10 +11,13 @@ import NewHostelPage from "./pages/NewHostelPage.jsx";
 import ManagerVerificationPage from "./pages/ManagerVerificationPage.jsx";
 import ManagerVerificationCallback from "./pages/ManagerVerificationCallback.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
+import NotificationsPage from "./pages/NotificationsPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
+import { NotificationProvider } from "./context/NotificationContext.jsx";
 
 export default function App() {
   return (
+    <NotificationProvider>
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <Navbar />
       <main className="mx-auto max-w-6xl px-4 py-6">
@@ -71,9 +74,18 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <NotificationsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>
+    </NotificationProvider>
   );
 }

@@ -2,6 +2,12 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, UserPlus } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+
+const UNI_GROUPS = [
+  { label: "Public Universities",  options: PUBLIC_UNIVERSITIES },
+  { label: "Private Universities", options: PRIVATE_UNIVERSITIES },
+];
 
 const ROLE_OPTIONS = [
   { value: "student", label: "Student — I want to book a bed" },
@@ -143,12 +149,16 @@ export default function RegisterPage() {
         {form.role === "student" && (
           <div>
             <label className="label">University</label>
-            <input
-              className="input"
-              placeholder="e.g. KNUST, University of Ghana…"
-              value={form.university}
-              onChange={set("university")}
-            />
+            <select className="input" value={form.university} onChange={set("university")}>
+              <option value="">— Select your university —</option>
+              {UNI_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((u) => (
+                    <option key={u.value} value={u.value}>{u.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
             {fieldError("university")}
           </div>
         )}

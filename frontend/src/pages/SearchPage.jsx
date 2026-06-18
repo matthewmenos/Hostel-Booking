@@ -1,30 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, Search, SlidersHorizontal, BadgeCheck } from "lucide-react";
+import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
+import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 
-const CAMPUS_TABS = [
-  { value: "",      label: "All" },
-  { value: "KNUST", label: "KNUST" },
-  { value: "LEGON", label: "Legon" },
-  { value: "UCC",   label: "UCC" },
-  { value: "UPSA",  label: "UPSA" },
-  { value: "OTHER", label: "Other" },
+const CATEGORY_TABS = [
+  { value: "",        label: "All" },
+  { value: "public",  label: "Public" },
+  { value: "private", label: "Private" },
 ];
 
+const CAMPUS_BY_CATEGORY = {
+  public:  PUBLIC_UNIVERSITIES,
+  private: PRIVATE_UNIVERSITIES,
+};
+
 export default function SearchPage() {
-  const [activeCampus, setActiveCampus] = useState("");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [hostels, setHostels] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [nextUrl, setNextUrl] = useState(null);
-  const [prevUrl, setPrevUrl] = useState(null);
-  const [count, setCount] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(""); // "", "public", "private"
+  const [activeCampus, setActiveCampus]     = useState(""); // specific university value
+  const [minPrice, setMinPrice]             = useState("");
+  const [maxPrice, setMaxPrice]             = useState("");
+  const [showFilters, setShowFilters]       = useState(false);
+  const [hostels, setHostels]               = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState(null);
+  const [nextUrl, setNextUrl]               = useState(null);
+  const [prevUrl, setPrevUrl]               = useState(null);
+  const [count, setCount]                   = useState(null);
+  const debounceRef                         = useRef(null);
 
   const applyResponse = (data) => {
     setHostels(data.results ?? data);
@@ -61,18 +66,33 @@ export default function SearchPage() {
     load();
   }, []);
 
-  const handleTabClick = (campus) => {
-    setActiveCampus(campus);
+  const triggerLoad = (campus, min, max) => {
     setNextUrl(null);
     setPrevUrl(null);
-    load({ campus, min_price: minPrice, max_price: maxPrice });
+    load({ campus, min_price: min, max_price: max });
   };
 
-  const onPriceSubmit = (e) => {
-    e.preventDefault();
-    setNextUrl(null);
-    setPrevUrl(null);
-    load({ campus: activeCampus, min_price: minPrice, max_price: maxPrice });
+  const handleCategoryClick = (cat) => {
+    setActiveCategory(cat);
+    setActiveCampus(""); // reset university selection when category changes
+    triggerLoad("", minPrice, maxPrice);
+  };
+
+  const handleUniversityChange = (val) => {
+    setActiveCampus(val);
+    triggerLoad(val, minPrice, maxPrice);
+  };
+
+  const handlePriceChange = (field, value) => {
+    const newMin = field === "min" ? value : minPrice;
+    const newMax = field === "max" ? value : maxPrice;
+    if (field === "min") setMinPrice(value);
+    else setMaxPrice(value);
+
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      triggerLoad(activeCampus, newMin, newMax);
+    }, 600);
   };
 
   return (
@@ -100,15 +120,15 @@ export default function SearchPage() {
             <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs text-white">
               {minPrice ? `GHS ${minPrice}` : "any"} – {maxPrice ? `GHS ${maxPrice}` : "any"}
               <button
-                className="ml-1.5 opacity-75 hover:opacity-100"
-                onClick={() => { setMinPrice(""); setMaxPrice(""); load({ campus: activeCampus }); }}
-              >×</button>
+                className="ml-1.5 inline-flex items-center opacity-75 hover:opacity-100"
+                onClick={() => { setMinPrice(""); setMaxPrice(""); clearTimeout(debounceRef.current); triggerLoad(activeCampus, "", ""); }}
+              ><X size={11} /></button>
             </span>
           )}
         </div>
 
         {showFilters && (
-          <form onSubmit={onPriceSubmit} className="mt-3 flex items-end gap-2 flex-wrap">
+          <div className="mt-3 flex items-end gap-2 flex-wrap">
             <div>
               <label className="mb-1 block text-xs font-medium text-white/80">Min (GHS)</label>
               <input
@@ -117,7 +137,7 @@ export default function SearchPage() {
                 className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
                 placeholder="0"
                 value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
+                onChange={(e) => handlePriceChange("min", e.target.value)}
               />
             </div>
             <div>
@@ -128,41 +148,73 @@ export default function SearchPage() {
                 className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
                 placeholder="any"
                 value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
+                onChange={(e) => handlePriceChange("max", e.target.value)}
               />
             </div>
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 rounded-lg bg-white px-4 py-1.5 text-sm font-semibold text-brand hover:bg-gray-100 transition"
-            >
-              <Search size={14} /> Apply
-            </button>
-          </form>
+          </div>
         )}
       </section>
 
-      {/* Campus tabs */}
-      <div className="mb-6 flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {CAMPUS_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => handleTabClick(tab.value)}
-            className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition
-              ${activeCampus === tab.value
-                ? "bg-brand text-white shadow-sm"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              }`}
+      {/* Category tabs + university dropdown */}
+      <div className="mb-6 space-y-3">
+        {/* Row 1: All / Public / Private pills */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {CATEGORY_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => handleCategoryClick(tab.value)}
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition
+                ${activeCategory === tab.value
+                  ? "bg-brand text-white shadow-sm"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Row 2: University select — shown always, filtered by category */}
+        <div className="relative">
+          <select
+            value={activeCampus}
+            onChange={(e) => handleUniversityChange(e.target.value)}
+            className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-2.5 pl-4 pr-10
+              text-sm text-gray-700 shadow-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand
+              dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
           >
-            {tab.label}
-          </button>
-        ))}
+            <option value="">All universities{activeCategory ? ` (${activeCategory})` : ""}</option>
+            {activeCategory
+              ? CAMPUS_BY_CATEGORY[activeCategory].map((u) => (
+                  <option key={u.value} value={u.value}>{u.label}</option>
+                ))
+              : (
+                <>
+                  <optgroup label="Public Universities">
+                    {PUBLIC_UNIVERSITIES.map((u) => (
+                      <option key={u.value} value={u.value}>{u.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Private Universities">
+                    {PRIVATE_UNIVERSITIES.map((u) => (
+                      <option key={u.value} value={u.value}>{u.label}</option>
+                    ))}
+                  </optgroup>
+                </>
+              )
+            }
+          </select>
+          <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        </div>
       </div>
 
       {/* Count label */}
       {!loading && !error && count !== null && hostels.length > 0 && (
         <p className="mb-3 text-sm text-gray-400 dark:text-gray-500">
           {count} hostel{count !== 1 ? "s" : ""} found
-          {activeCampus ? ` · ${CAMPUS_TABS.find(t => t.value === activeCampus)?.label}` : ""}
+          {activeCampus
+            ? ` · ${[...PUBLIC_UNIVERSITIES, ...PRIVATE_UNIVERSITIES].find(u => u.value === activeCampus)?.label ?? activeCampus}`
+            : activeCategory ? ` · ${activeCategory} universities` : ""}
         </p>
       )}
 
@@ -175,7 +227,7 @@ export default function SearchPage() {
 
       {/* Error */}
       {error && (
-        <ErrorPage message={error} onRetry={() => load({ campus: activeCampus, min_price: minPrice, max_price: maxPrice })} />
+        <ErrorPage message={error} onRetry={() => triggerLoad(activeCampus, minPrice, maxPrice)} />
       )}
 
       {/* Empty state */}
@@ -184,7 +236,7 @@ export default function SearchPage() {
           <MapPin size={40} className="mx-auto mb-3 opacity-40" />
           <p className="text-lg font-medium">No hostels found</p>
           <p className="mt-1 text-sm">
-            {activeCampus ? "Try selecting a different campus or clearing the price filter." : "Check back soon — more hostels are being added."}
+            {activeCampus || activeCategory ? "Try a different university or clear the filter." : "Check back soon — more hostels are being added."}
           </p>
         </div>
       )}

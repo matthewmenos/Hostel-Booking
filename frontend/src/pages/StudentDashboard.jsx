@@ -5,6 +5,12 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonBookingRow } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
+import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+
+const UNI_GROUPS = [
+  { label: "Public Universities",  options: PUBLIC_UNIVERSITIES },
+  { label: "Private Universities", options: PRIVATE_UNIVERSITIES },
+];
 
 const TABS = [
   { id: "bookings", label: "My Bookings" },
@@ -194,8 +200,17 @@ function ProfileTab() {
 
       <div>
         <label className="label">University</label>
-        <input className="input" value={form.university}
-          onChange={(e) => setForm({...form, university: e.target.value})} />
+        <select className="input" value={form.university}
+          onChange={(e) => setForm({...form, university: e.target.value})}>
+          <option value="">— Select your university —</option>
+          {UNI_GROUPS.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map((u) => (
+                <option key={u.value} value={u.value}>{u.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
       </div>
 
       <button className="btn-primary w-full" disabled={busy}>

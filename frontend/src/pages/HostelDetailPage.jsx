@@ -80,38 +80,45 @@ const AMENITY_DEFS = [
 const GENDER_LABEL = { mixed: "Mixed", male: "Male only", female: "Female only" };
 
 function HostelAmenities({ hostel }) {
-  const hasAny = AMENITY_DEFS.some(({ key }) => hostel[key]);
-  return (
-    <div className="mt-5 space-y-4 border-t border-gray-100 pt-5 dark:border-gray-700">
-      {/* Amenity pills */}
-      {hasAny && (
-        <div className="flex flex-wrap gap-2">
-          {AMENITY_DEFS.map(({ key, label, Icon }) => hostel[key] ? (
-            <span key={key}
-              className="flex items-center gap-1.5 rounded-full border border-brand/20 bg-brand/5
-                px-3 py-1 text-xs font-medium text-brand dark:bg-brand/10">
-              <Icon size={12} /> {label}
-            </span>
-          ) : null)}
-        </div>
-      )}
+  const activeAmenities = AMENITY_DEFS.filter(({ key }) => hostel[key]);
 
-      {/* Utilities & policy row */}
-      <div className="flex flex-wrap gap-4 text-sm">
+  return (
+    <div className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-700 space-y-4">
+      {/* Amenity pills — always render the section, show "none listed" if empty */}
+      <div>
+        <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-gray-400">Amenities</p>
+        {activeAmenities.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {activeAmenities.map(({ key, label, Icon }) => (
+              <span key={key}
+                className="flex items-center gap-1.5 rounded-full border border-brand/20 bg-brand/5
+                  px-3 py-1 text-xs font-medium text-brand dark:bg-brand/10">
+                <Icon size={12} /> {label}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">No amenities listed.</p>
+        )}
+      </div>
+
+      {/* Policy row — always visible */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         <span className={`flex items-center gap-1.5 font-medium
           ${hostel.utilities_included ? "text-green-600" : "text-gray-400"}`}>
           {hostel.utilities_included
-            ? <><CheckCircle2 size={15} /> Bills included</>
-            : <><XCircle size={15} /> Bills not included</>}
+            ? <><CheckCircle2 size={14} /> Bills included in price</>
+            : <><XCircle size={14} /> Bills not included</>}
         </span>
-        {hostel.gender_policy && (
-          <span className="flex items-center gap-1.5 text-gray-500">
-            <Users size={14} /> {GENDER_LABEL[hostel.gender_policy] ?? hostel.gender_policy}
-          </span>
-        )}
+
+        <span className="flex items-center gap-1.5 text-gray-500">
+          <Users size={14} />
+          {GENDER_LABEL[hostel.gender_policy] ?? hostel.gender_policy ?? "Mixed"}
+        </span>
+
         {hostel.min_stay_months > 0 && (
           <span className="text-gray-500">
-            Min stay: {hostel.min_stay_months} month{hostel.min_stay_months > 1 ? "s" : ""}
+            Min stay: <strong>{hostel.min_stay_months}</strong> month{hostel.min_stay_months > 1 ? "s" : ""}
           </span>
         )}
       </div>

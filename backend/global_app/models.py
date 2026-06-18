@@ -44,6 +44,28 @@ class TenantHostel(models.Model):
         related_name="hostels",
         on_delete=models.CASCADE,
     )
+    # Amenities
+    has_wifi = models.BooleanField(default=False)
+    has_ac = models.BooleanField(default=False)
+    has_electricity = models.BooleanField(default=True)
+    has_water = models.BooleanField(default=True)
+    utilities_included = models.BooleanField(
+        default=False, help_text="Are utility bills included in the listed price?"
+    )
+    has_security = models.BooleanField(default=False)
+    has_parking = models.BooleanField(default=False)
+    has_laundry = models.BooleanField(default=False)
+    has_kitchen = models.BooleanField(default=False)
+    # House rules / policy
+    gender_policy = models.CharField(
+        max_length=10,
+        choices=[("mixed", "Mixed"), ("male", "Male only"), ("female", "Female only")],
+        default="mixed",
+    )
+    min_stay_months = models.PositiveSmallIntegerField(
+        default=1, help_text="Minimum stay in months"
+    )
+
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -27,6 +27,12 @@ class TenantHostelSerializer(serializers.ModelSerializer):
             "total_capacity", "base_price", "description", "image",
             "owner", "owner_username", "booking_count",
             "active_bookings_count",
+            # Amenities
+            "has_wifi", "has_ac", "has_electricity", "has_water",
+            "utilities_included", "has_security", "has_parking",
+            "has_laundry", "has_kitchen",
+            # Policy
+            "gender_policy", "min_stay_months",
             "is_active", "is_verified", "gallery", "created_at",
         )
         read_only_fields = ("id", "owner", "created_at")

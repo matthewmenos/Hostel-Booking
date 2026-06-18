@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight,
+  Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users } from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
@@ -61,6 +62,59 @@ function GalleryCarousel({ hostel }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+const AMENITY_DEFS = [
+  { key: "has_wifi",        label: "WiFi",              Icon: Wifi },
+  { key: "has_ac",          label: "Air Conditioning",   Icon: Snowflake },
+  { key: "has_electricity", label: "Electricity",        Icon: Zap },
+  { key: "has_water",       label: "Water Access",       Icon: Droplets },
+  { key: "has_security",    label: "Security",           Icon: ShieldCheck },
+  { key: "has_parking",     label: "Parking",            Icon: Car },
+  { key: "has_laundry",     label: "Laundry",            Icon: WashingMachine },
+  { key: "has_kitchen",     label: "Shared Kitchen",     Icon: ChefHat },
+];
+
+const GENDER_LABEL = { mixed: "Mixed", male: "Male only", female: "Female only" };
+
+function HostelAmenities({ hostel }) {
+  const hasAny = AMENITY_DEFS.some(({ key }) => hostel[key]);
+  return (
+    <div className="mt-5 space-y-4 border-t border-gray-100 pt-5 dark:border-gray-700">
+      {/* Amenity pills */}
+      {hasAny && (
+        <div className="flex flex-wrap gap-2">
+          {AMENITY_DEFS.map(({ key, label, Icon }) => hostel[key] ? (
+            <span key={key}
+              className="flex items-center gap-1.5 rounded-full border border-brand/20 bg-brand/5
+                px-3 py-1 text-xs font-medium text-brand dark:bg-brand/10">
+              <Icon size={12} /> {label}
+            </span>
+          ) : null)}
+        </div>
+      )}
+
+      {/* Utilities & policy row */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        <span className={`flex items-center gap-1.5 font-medium
+          ${hostel.utilities_included ? "text-green-600" : "text-gray-400"}`}>
+          {hostel.utilities_included
+            ? <><CheckCircle2 size={15} /> Bills included</>
+            : <><XCircle size={15} /> Bills not included</>}
+        </span>
+        {hostel.gender_policy && (
+          <span className="flex items-center gap-1.5 text-gray-500">
+            <Users size={14} /> {GENDER_LABEL[hostel.gender_policy] ?? hostel.gender_policy}
+          </span>
+        )}
+        {hostel.min_stay_months > 0 && (
+          <span className="text-gray-500">
+            Min stay: {hostel.min_stay_months} month{hostel.min_stay_months > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -150,6 +204,9 @@ export default function HostelDetailPage() {
           </p>
           <p className="mt-2 text-xl font-bold text-brand">GHS {hostel.base_price} / bed</p>
           {hostel.description && <p className="mt-3 text-gray-600 dark:text-gray-300">{hostel.description}</p>}
+
+          {/* Amenities grid */}
+          <HostelAmenities hostel={hostel} />
         </div>
       </div>
 

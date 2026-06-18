@@ -1,14 +1,21 @@
-import { useEffect, useState } from "react";
-import { ShieldCheck, Users, Building2, BookOpen } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import {
+  ShieldCheck, Users, Building2, BookOpen, BadgeCheck,
+  BarChart2, CreditCard, Wallet, Settings, TrendingUp, UserCheck,
+} from "lucide-react";
 import { adminApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
-import { SkeletonBookingRow, SkeletonCard } from "../components/Skeleton.jsx";
+import { SkeletonBookingRow, SkeletonCard, SkeletonStatCard } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
 
 const TABS = [
-  { id: "users",    label: "Users",    icon: Users },
-  { id: "hostels",  label: "Hostels",  icon: Building2 },
-  { id: "bookings", label: "Bookings", icon: BookOpen },
+  { id: "overview",  label: "Overview",      icon: BarChart2 },
+  { id: "paystack",  label: "Paystack",       icon: CreditCard },
+  { id: "payouts",   label: "Manager Payouts",icon: Wallet },
+  { id: "settings",  label: "Settings",       icon: Settings },
+  { id: "users",     label: "Users",          icon: Users },
+  { id: "hostels",   label: "Hostels",        icon: Building2 },
+  { id: "bookings",  label: "Bookings",       icon: BookOpen },
 ];
 
 const ROLE_STYLES = {
@@ -17,8 +24,23 @@ const ROLE_STYLES = {
   superadmin: "bg-purple-100 text-purple-700",
 };
 
+function StatCard({ label, value, sub, icon: Icon, color = "text-brand" }) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+          <p className={`mt-1 text-2xl font-bold ${color}`}>{value ?? "—"}</p>
+          {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
+        </div>
+        {Icon && <Icon size={22} className={`${color} opacity-70`} />}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState("users");
+  const [tab, setTab] = useState("overview");
 
   return (
     <div className="space-y-6">
@@ -27,20 +49,391 @@ export default function AdminPage() {
         <h1 className="text-2xl font-bold">Superadmin Dashboard</h1>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-gray-200">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors
-              ${tab === id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700"}`}>
-            <Icon size={15}/> {label}
-          </button>
-        ))}
+      {/* Tab bar — scrollable on mobile */}
+      <div className="overflow-x-auto">
+        <div className="flex gap-0.5 border-b border-gray-200 dark:border-gray-700 min-w-max">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`flex items-center gap-1.5 whitespace-nowrap px-4 py-2.5 text-sm font-medium transition-colors
+                ${tab === id
+                  ? "border-b-2 border-brand text-brand"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"}`}>
+              <Icon size={15} /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {tab === "users"    && <UsersTab />}
-      {tab === "hostels"  && <HostelsTab />}
-      {tab === "bookings" && <BookingsTab />}
+      {tab === "overview"  && <OverviewTab />}
+      {tab === "paystack"  && <PaystackTab />}
+      {tab === "payouts"   && <PayoutsTab />}
+      {tab === "settings"  && <SettingsTab />}
+      {tab === "users"     && <UsersTab />}
+      {tab === "hostels"   && <HostelsTab />}
+      {tab === "bookings"  && <BookingsTab />}
+    </div>
+  );
+}
+
+// ── Overview tab ──────────────────────────────────────────────────────────────
+
+function OverviewTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminApi.overview()
+      .then(({ data }) => setData(data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[1,2,3,4].map(i => <SkeletonStatCard key={i}/>)}
+      </div>
+    </div>
+  );
+
+  if (!data) return <p className="text-gray-500">Failed to load overview.</p>;
+
+  const { users, hostels, bookings, revenue, monthly, top_hostels } = data;
+
+  const maxMonthly = Math.max(...(monthly ?? []).map(m => m.revenue ?? 0), 1);
+
+  return (
+    <div className="space-y-8">
+      {/* KPI cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Total Revenue" value={`GHS ${(revenue?.total ?? 0).toFixed(2)}`} icon={TrendingUp} color="text-green-600"
+          sub={`GHS ${(revenue?.pending_approval ?? 0).toFixed(2)} awaiting approval`} />
+        <StatCard label="Total Users" value={users?.total ?? 0} icon={Users} color="text-brand"
+          sub={`${users?.new_last_30d ?? 0} new in last 30 days`} />
+        <StatCard label="Hostels" value={hostels?.total ?? 0} icon={Building2} color="text-purple-600"
+          sub={`${hostels?.active ?? 0} active`} />
+        <StatCard label="Bookings" value={bookings?.total ?? 0} icon={BookOpen} color="text-orange-600"
+          sub={`${bookings?.awaiting_approval ?? 0} awaiting approval`} />
+      </div>
+
+      {/* Booking breakdown */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard label="Paid & Approved" value={bookings?.paid ?? 0} color="text-green-600" />
+        <StatCard label="Pending Payment" value={bookings?.pending ?? 0} color="text-yellow-600" />
+        <StatCard label="Users: Managers" value={users?.managers ?? 0} icon={UserCheck} color="text-teal-600"
+          sub={`${users?.students ?? 0} students`} />
+      </div>
+
+      {/* Monthly revenue chart */}
+      {monthly?.length > 0 && (
+        <div className="card p-6">
+          <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-300">Monthly Revenue (GHS)</h2>
+          <div className="flex items-end gap-2 overflow-x-auto pb-2" style={{ minHeight: "120px" }}>
+            {monthly.map((m) => {
+              const height = Math.round(((m.revenue ?? 0) / maxMonthly) * 100);
+              return (
+                <div key={m.month} className="flex flex-col items-center gap-1 flex-1 min-w-[40px]">
+                  <span className="text-xs text-gray-500">{(m.revenue ?? 0).toFixed(0)}</span>
+                  <div
+                    className="w-full rounded-t bg-brand/80 transition-all"
+                    style={{ height: `${Math.max(height, 4)}px` }}
+                  />
+                  <span className="text-xs text-gray-400 rotate-45 origin-left whitespace-nowrap">
+                    {m.month ?? ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Top hostels */}
+      {top_hostels?.length > 0 && (
+        <div className="card p-6">
+          <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-300">Top Hostels by Revenue</h2>
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            {top_hostels.map((h, i) => (
+              <div key={h["hostel__slug"] ?? h.slug ?? i} className="flex items-center justify-between py-2.5">
+                <div>
+                  <p className="font-medium">{h["hostel__name"] ?? h.name}</p>
+                  <p className="text-xs text-gray-400">{h.bookings ?? h.booking_count ?? 0} booking{(h.bookings ?? h.booking_count ?? 0) !== 1 ? "s" : ""}</p>
+                </div>
+                <p className="font-semibold text-green-600">GHS {(h.revenue ?? 0).toFixed(2)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Paystack tab ──────────────────────────────────────────────────────────────
+
+function PaystackTab() {
+  const [balance, setBalance] = useState(null);
+  const [transfers, setTransfers] = useState([]);
+  const [loadingBal, setLoadingBal] = useState(true);
+  const [loadingTx, setLoadingTx] = useState(true);
+
+  useEffect(() => {
+    adminApi.paystackBalance()
+      .then(({ data }) => setBalance(data))
+      .catch(() => setBalance({ detail: "Failed to fetch balance." }))
+      .finally(() => setLoadingBal(false));
+    adminApi.paystackTransfers()
+      .then(({ data }) => setTransfers(Array.isArray(data) ? data : (data.data ?? data.transfers ?? [])))
+      .catch(() => setTransfers([]))
+      .finally(() => setLoadingTx(false));
+  }, []);
+
+  // balance is either an array (Paystack configured) or {detail, stub, balances}
+  const balanceList = Array.isArray(balance) ? balance : null;
+  const balanceMsg = !balanceList ? (balance?.detail ?? "Balance unavailable — check Paystack credentials.") : null;
+
+  return (
+    <div className="space-y-6">
+      {/* Balance */}
+      <div className="card p-6">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-300">Platform Paystack Balance</h2>
+        {loadingBal ? (
+          <SkeletonStatCard />
+        ) : balanceList ? (
+          <div className="flex flex-wrap gap-4">
+            {balanceList.map((b, i) => (
+              <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 min-w-[160px]">
+                <p className="text-xs text-gray-400 uppercase tracking-wide">{b.currency}</p>
+                <p className="mt-1 text-2xl font-bold text-green-600">
+                  {b.currency} {((b.balance ?? 0) / 100).toFixed(2)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">{balanceMsg}</p>
+        )}
+      </div>
+
+      {/* Transfer log */}
+      <div className="card p-6">
+        <h2 className="mb-4 font-semibold text-gray-700 dark:text-gray-300">Transfer Log</h2>
+        {loadingTx && <div className="space-y-3">{[1,2,3].map(i => <SkeletonBookingRow key={i}/>)}</div>}
+        {!loadingTx && transfers.length === 0 && (
+          <p className="text-sm text-gray-500">No transfers recorded yet.</p>
+        )}
+        {!loadingTx && transfers.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-400 uppercase">
+                  <th className="pb-2 pr-4">Reference</th>
+                  <th className="pb-2 pr-4">Amount</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {transfers.map((t, i) => (
+                  <tr key={t.transfer_code ?? t.reference ?? i}>
+                    <td className="py-2.5 pr-4 font-mono text-xs text-gray-600 dark:text-gray-300">
+                      {t.transfer_code ?? t.reference ?? "—"}
+                    </td>
+                    <td className="py-2.5 pr-4 font-medium">
+                      {t.currency ?? "GHS"}{" "}
+                      {t.amount != null
+                        ? t.stub
+                          ? Number(t.amount).toFixed(2)          // local record — already in GHS
+                          : (t.amount / 100).toFixed(2)          // Paystack — in kobo
+                        : "—"}
+                    </td>
+                    <td className="py-2.5 pr-4">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium
+                        ${(t.status === "success" || t.status === "paid") ? "bg-green-100 text-green-700"
+                          : t.status === "pending" ? "bg-yellow-100 text-yellow-700"
+                          : "bg-gray-100 text-gray-500"}`}>
+                        {t.status ?? "—"}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-gray-400 text-xs">
+                      {t.createdAt ?? t.created_at
+                        ? new Date(t.createdAt ?? t.created_at).toLocaleDateString("en-GH", { day:"numeric", month:"short", year:"numeric" })
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Manager Payouts tab ───────────────────────────────────────────────────────
+
+function PayoutsTab() {
+  const { addToast } = useToast();
+  const [managers, setManagers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState({});
+  const [saving, setSaving] = useState({});
+
+  useEffect(() => {
+    adminApi.managers()
+      .then(({ data }) => setManagers(data.results ?? data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const saveCode = async (mgr) => {
+    const code = editing[mgr.id] ?? mgr.paystack_recipient_code ?? "";
+    setSaving(prev => ({ ...prev, [mgr.id]: true }));
+    try {
+      const { data } = await adminApi.setRecipient(mgr.id, code);
+      setManagers(prev => prev.map(m => m.id === mgr.id ? { ...m, paystack_recipient_code: data.paystack_recipient_code } : m));
+      setEditing(prev => { const n = { ...prev }; delete n[mgr.id]; return n; });
+      addToast("success", "Recipient code saved.");
+    } catch {
+      addToast("error", "Could not save recipient code.");
+    } finally {
+      setSaving(prev => ({ ...prev, [mgr.id]: false }));
+    }
+  };
+
+  if (loading) return <div className="space-y-3">{[1,2,3].map(i => <SkeletonBookingRow key={i}/>)}</div>;
+  if (managers.length === 0) return <p className="text-gray-500">No managers found.</p>;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-gray-500">
+        Set each manager's Paystack recipient code (MoMo/bank) so payouts can be disbursed after booking approval.
+      </p>
+      {managers.map((mgr) => {
+        const current = editing[mgr.id] ?? mgr.paystack_recipient_code ?? "";
+        const isDirty = mgr.id in editing;
+        return (
+          <div key={mgr.id} className="card p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">{mgr.username}</p>
+              <p className="text-sm text-gray-500">{mgr.email}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-md">
+              <input
+                type="text"
+                placeholder="RCP_xxxxxxxxxxxx"
+                className="input flex-1 font-mono text-sm"
+                value={current}
+                onChange={(e) => setEditing(prev => ({ ...prev, [mgr.id]: e.target.value }))}
+              />
+              {isDirty && (
+                <button
+                  onClick={() => saveCode(mgr)}
+                  disabled={saving[mgr.id]}
+                  className="btn-primary px-3 py-2 text-sm shrink-0">
+                  {saving[mgr.id] ? "Saving…" : "Save"}
+                </button>
+              )}
+              {!isDirty && mgr.paystack_recipient_code && (
+                <span className="text-xs text-green-600 shrink-0">Saved</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Settings tab ──────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const { addToast } = useToast();
+  const [cfg, setCfg] = useState(null);
+  const [form, setForm] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    adminApi.settings()
+      .then(({ data }) => {
+        setCfg(data);
+        setForm({
+          PLATFORM_NAME: data.PLATFORM_NAME ?? "",
+          PLATFORM_CONTACT_EMAIL: data.PLATFORM_CONTACT_EMAIL ?? "",
+          PLATFORM_COMMISSION_RATE: data.PLATFORM_COMMISSION_RATE ?? "",
+        });
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await adminApi.updateSettings(form);
+      setCfg(prev => ({ ...prev, ...data }));
+      addToast("success", "Settings saved (in-process). Update Render env vars for permanence.");
+    } catch (err) {
+      addToast("error", err.response?.data?.detail ?? "Could not save settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="space-y-3">{[1,2,3].map(i => <SkeletonStatCard key={i}/>)}</div>;
+
+  const readOnly = {
+    PAYSTACK_CONFIGURED: cfg?.PAYSTACK_CONFIGURED,
+    R2_ENABLED: cfg?.R2_ENABLED,
+    DEBUG: cfg?.DEBUG,
+    ADMIN_USERNAME: cfg?.ADMIN_USERNAME,
+    ADMIN_EMAIL: cfg?.ADMIN_EMAIL,
+  };
+
+  return (
+    <div className="space-y-6 max-w-xl">
+      {/* Editable settings */}
+      <div className="card p-6 space-y-4">
+        <h2 className="font-semibold text-gray-700 dark:text-gray-300">Platform Configuration</h2>
+
+        <div>
+          <label className="label">Platform Name</label>
+          <input className="input" value={form.PLATFORM_NAME} onChange={e => setForm(p => ({ ...p, PLATFORM_NAME: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Contact Email</label>
+          <input className="input" type="email" value={form.PLATFORM_CONTACT_EMAIL} onChange={e => setForm(p => ({ ...p, PLATFORM_CONTACT_EMAIL: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Commission Rate (e.g. 0.10 = 10%)</label>
+          <input className="input" type="number" step="0.01" min="0" max="1"
+            value={form.PLATFORM_COMMISSION_RATE} onChange={e => setForm(p => ({ ...p, PLATFORM_COMMISSION_RATE: e.target.value }))} />
+          <p className="mt-1 text-xs text-gray-400">
+            Current: {parseFloat(form.PLATFORM_COMMISSION_RATE || 0) * 100}% platform fee per booking.
+          </p>
+        </div>
+        <button onClick={save} disabled={saving} className="btn-primary px-4 py-2">
+          {saving ? "Saving…" : "Save Settings"}
+        </button>
+        <p className="text-xs text-gray-400">
+          Changes apply immediately in the current process. To persist across restarts, update the Render environment variables.
+        </p>
+      </div>
+
+      {/* Read-only system info */}
+      <div className="card p-6 space-y-3">
+        <h2 className="font-semibold text-gray-700 dark:text-gray-300">System Status</h2>
+        {Object.entries(readOnly).map(([k, v]) => (
+          <div key={k} className="flex items-center justify-between">
+            <span className="text-sm font-mono text-gray-500">{k}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium
+              ${v === true ? "bg-green-100 text-green-700"
+                : v === false ? "bg-gray-100 text-gray-500"
+                : "bg-gray-100 text-gray-700"}`}>
+              {v === true ? "Yes" : v === false ? "No" : String(v ?? "—")}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -130,6 +523,16 @@ function HostelsTab() {
     }
   };
 
+  const verify = async (hostel) => {
+    try {
+      const { data } = await adminApi.verifyHostel(hostel.slug);
+      setHostels((prev) => prev.map((h) => h.slug === hostel.slug ? data : h));
+      addToast("success", data.is_verified ? "Hostel verified." : "Verification removed.");
+    } catch {
+      addToast("error", "Could not update verification.");
+    }
+  };
+
   if (loading) return <div className="grid gap-4 sm:grid-cols-2">{[1,2,3,4].map(i=><SkeletonCard key={i}/>)}</div>;
   if (hostels.length === 0) return <p className="text-gray-500">No hostels found.</p>;
 
@@ -139,12 +542,17 @@ function HostelsTab() {
         <div key={h.slug} className={`card p-4 flex flex-wrap items-center justify-between gap-3
           ${!h.is_active ? "opacity-60" : ""}`}>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <p className="font-semibold">{h.name}</p>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium
                 ${h.is_active ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-500"}`}>
                 {h.is_active ? "Active" : "Inactive"}
               </span>
+              {h.is_verified && (
+                <span className="flex items-center gap-0.5 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">
+                  <BadgeCheck size={11}/> Verified
+                </span>
+              )}
             </div>
             <p className="text-sm text-gray-500">
               {h.campus_display} · {h.location} · Owner: {h.owner_username}
@@ -153,14 +561,24 @@ function HostelsTab() {
               {h.booking_count} booking{h.booking_count !== 1 ? "s" : ""} · GHS {h.base_price}/bed
             </p>
           </div>
-          <button
-            onClick={() => toggle(h)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition
-              ${h.is_active
-                ? "border-red-200 text-red-600 hover:bg-red-50"
-                : "border-green-200 text-green-600 hover:bg-green-50"}`}>
-            {h.is_active ? "Deactivate" : "Activate"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => verify(h)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition
+                ${h.is_verified
+                  ? "border-gray-200 text-gray-500 hover:bg-gray-50"
+                  : "border-brand/30 text-brand hover:bg-brand/5"}`}>
+              {h.is_verified ? "Unverify" : "Verify"}
+            </button>
+            <button
+              onClick={() => toggle(h)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition
+                ${h.is_active
+                  ? "border-red-200 text-red-600 hover:bg-red-50"
+                  : "border-green-200 text-green-600 hover:bg-green-50"}`}>
+              {h.is_active ? "Deactivate" : "Activate"}
+            </button>
+          </div>
         </div>
       ))}
     </div>
@@ -175,14 +593,24 @@ function BookingsTab() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
 
-  const load = (paymentStatus) => {
+  const load = useCallback((paymentStatus) => {
     setLoading(true);
     adminApi.bookings(paymentStatus ? { payment_status: paymentStatus } : {})
       .then(({ data }) => setBookings(data.results ?? data))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { load(statusFilter); }, [statusFilter]);
+  useEffect(() => { load(statusFilter); }, [statusFilter, load]);
+
+  const approve = async (id) => {
+    try {
+      const { data } = await adminApi.approveBooking(id);
+      setBookings((prev) => prev.map((b) => b.id === id ? data.booking : b));
+      addToast("success", `Booking approved. Payout: GHS ${data.payout?.payout ?? "—"}`);
+    } catch (err) {
+      addToast("error", err.response?.data?.detail ?? "Could not approve booking.");
+    }
+  };
 
   const refund = async (id) => {
     try {
@@ -227,10 +655,17 @@ function BookingsTab() {
                   {new Date(b.created_at).toLocaleDateString("en-GH", { day:"numeric", month:"short", year:"numeric" })}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>
                   <Icon size={16}/> {ui.label}
                 </span>
+                {b.payment_status === "paid_awaiting_approval" && (
+                  <button
+                    onClick={() => approve(b.id)}
+                    className="rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-50">
+                    Approve & Pay Out
+                  </button>
+                )}
                 {b.payment_status === "paid" && (
                   <button
                     onClick={() => refund(b.id)}

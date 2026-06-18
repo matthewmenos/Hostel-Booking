@@ -265,6 +265,10 @@ else:
 
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "HostelHub Ghana <noreply@hostelhub.gh>")
 
+# --- Platform identity -------------------------------------------------------
+PLATFORM_NAME          = os.getenv("PLATFORM_NAME", "HostelHub Ghana")
+PLATFORM_CONTACT_EMAIL = os.getenv("PLATFORM_CONTACT_EMAIL", "support@hostelhub.gh")
+
 
 # --- Logging (surface R2 transfer issues clearly) ---------------------------
 LOGGING = {

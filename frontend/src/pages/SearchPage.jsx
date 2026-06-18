@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, Search, SlidersHorizontal } from "lucide-react";
+import { MapPin, Search, SlidersHorizontal, BadgeCheck } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
@@ -208,7 +208,25 @@ export default function SearchPage() {
                   )}
                 </div>
                 <div className="p-4">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{h.name}</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{h.name}</h3>
+                      {h.is_verified && (
+                        <BadgeCheck size={16} className="shrink-0 text-brand" title="Verified hostel" />
+                      )}
+                    </div>
+                    {(() => {
+                      const free = (h.total_capacity || 0) - (h.active_bookings_count || 0);
+                      if (free <= 0) return (
+                        <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-400">Full</span>
+                      );
+                      return (
+                        <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                          {free} bed{free !== 1 ? "s" : ""} left
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
                     {h.campus_display} · {h.location}
                   </p>

@@ -2,7 +2,14 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import TenantHostel, GlobalBooking, Payment
+from .models import TenantHostel, HostelImage, GlobalBooking, Payment
+
+
+class HostelImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HostelImage
+        fields = ("id", "image", "caption", "order", "uploaded_at")
+        read_only_fields = ("id", "uploaded_at")
 
 
 class TenantHostelSerializer(serializers.ModelSerializer):
@@ -10,15 +17,30 @@ class TenantHostelSerializer(serializers.ModelSerializer):
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     booking_count = serializers.IntegerField(source="bookings.count", read_only=True)
+    gallery = HostelImageSerializer(many=True, read_only=True)
+    active_bookings_count = serializers.SerializerMethodField()
 
     class Meta:
         model = TenantHostel
         fields = (
             "id", "name", "slug", "campus", "campus_display", "location",
             "total_capacity", "base_price", "description", "image",
-            "owner", "owner_username", "booking_count", "is_active", "created_at",
+            "owner", "owner_username", "booking_count",
+            "active_bookings_count",
+            "is_active", "is_verified", "gallery", "created_at",
         )
         read_only_fields = ("id", "owner", "created_at")
+
+    def get_active_bookings_count(self, obj):
+        """Count beds currently occupied (pending or paid — not expired/refunded)."""
+        from .models import PaymentStatus
+        return obj.bookings.filter(
+            payment_status__in=[
+                PaymentStatus.PENDING,
+                PaymentStatus.PAID_AWAITING_APPROVAL,
+                PaymentStatus.PAID,
+            ]
+        ).count()
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -26,9 +48,14 @@ class PaymentSerializer(serializers.ModelSerializer):
         model = Payment
         fields = (
             "id", "booking", "provider", "amount", "status",
-            "reference", "authorization_url", "created_at",
+            "reference", "authorization_url",
+            "transfer_code", "platform_commission", "manager_payout",
+            "created_at",
         )
-        read_only_fields = ("id", "status", "reference", "authorization_url", "created_at")
+        read_only_fields = (
+            "id", "status", "reference", "authorization_url",
+            "transfer_code", "platform_commission", "manager_payout", "created_at",
+        )
 
 
 class GlobalBookingSerializer(serializers.ModelSerializer):
@@ -41,11 +68,11 @@ class GlobalBookingSerializer(serializers.ModelSerializer):
         fields = (
             "id", "student", "student_username", "hostel", "hostel_name", "room_type",
             "bed_space_ref", "amount", "payment_status",
-            "expiry_timestamp", "created_at", "payments",
+            "expiry_timestamp", "approved_at", "created_at", "payments",
         )
         read_only_fields = (
             "id", "student", "amount", "payment_status",
-            "bed_space_ref", "expiry_timestamp", "created_at",
+            "bed_space_ref", "expiry_timestamp", "approved_at", "created_at",
         )
 
 
@@ -66,6 +93,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         model = get_user_model()
         fields = (
             "id", "username", "email", "first_name", "last_name",
-            "role", "is_active", "phone", "university", "date_joined",
+            "role", "is_active", "phone", "university",
+            "paystack_recipient_code", "date_joined",
         )
         read_only_fields = ("id", "username", "email", "date_joined")

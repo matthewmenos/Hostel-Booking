@@ -11,8 +11,10 @@ Because writes mutate the tenant ``.db``, each create/update flags it dirty via
 ``tenant_manager.mark_dirty`` so the middleware syncs it back to R2.
 """
 from rest_framework import viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from tenants import tenant_manager
 from .models import Room, BedSpace, TenantAnnouncement
@@ -71,3 +73,48 @@ class BedSpaceViewSet(_TenantScopedViewSet):
 class AnnouncementViewSet(_TenantScopedViewSet):
     queryset = TenantAnnouncement.objects.all()
     serializer_class = TenantAnnouncementSerializer
+
+
+class BulkBedCreateView(APIView):
+    """
+    POST /api/tenant/rooms/<room_id>/bulk-beds/
+    Body: { "count": 10, "label_prefix": "Bed" }
+    Creates count beds named "<label_prefix> 1", "<label_prefix> 2", …
+    Requires manager role and X-Tenant-Slug header (resolved by TenantMiddleware).
+    """
+
+    def post(self, request, room_id):
+        if not getattr(request, "tenant_slug", None):
+            raise PermissionDenied("Missing X-Tenant-Slug header.")
+        if not getattr(request.user, "is_manager", False):
+            raise PermissionDenied("Only hostel managers may use bulk bed creation.")
+
+        alias = tenant_manager.tenant_db_alias(request.tenant_slug)
+
+        try:
+            room = Room.objects.using(alias).get(pk=room_id)
+        except Room.DoesNotExist:
+            return Response({"detail": "Room not found."}, status=404)
+
+        count = int(request.data.get("count", 0))
+        prefix = request.data.get("label_prefix", "Bed").strip() or "Bed"
+
+        if count < 1 or count > 50:
+            raise ValidationError("count must be between 1 and 50.")
+
+        existing_labels = set(
+            BedSpace.objects.using(alias).filter(room=room).values_list("bed_label", flat=True)
+        )
+
+        created = []
+        i = 1
+        while len(created) < count:
+            label = f"{prefix} {i}"
+            if label not in existing_labels:
+                bed = BedSpace.objects.using(alias).create(room=room, bed_label=label)
+                created.append(bed)
+                existing_labels.add(label)
+            i += 1
+
+        tenant_manager.mark_dirty(request.tenant_slug)
+        return Response(BedSpaceSerializer(created, many=True).data, status=201)

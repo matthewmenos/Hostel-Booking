@@ -9,6 +9,7 @@ from .views import (
     CancelBookingView,
     CreateBookingView,
     ManagerBookingsView,
+    ManagerAnalyticsView,
     AdminUserListView,
     AdminUserUpdateView,
     AdminHostelListView,
@@ -16,6 +17,18 @@ from .views import (
     AdminHostelDeactivateView,
     AdminBookingsView,
     AdminRefundBookingView,
+    AdminApproveBookingView,
+    AdminVerifyHostelView,
+    AdminOverviewView,
+    AdminPaystackBalanceView,
+    AdminPaystackTransfersView,
+    AdminManagerListView,
+    AdminSetRecipientView,
+    AdminSettingsView,
+    PaystackWebhookView,
+    HostelImageListView,
+    HostelImageDeleteView,
+    BookingReceiptView,
 )
 
 router = DefaultRouter()
@@ -23,18 +36,39 @@ router.register("hostels", HostelViewSet, basename="hostel")
 router.register("bookings", BookingViewSet, basename="booking")
 
 urlpatterns = [
+    # Public / student
     path("my-hostels/", MyHostelsView.as_view(), name="my-hostels"),
     path("book/", CreateBookingView.as_view(), name="create-booking"),
     path("bookings/<int:pk>/cancel/", CancelBookingView.as_view(), name="cancel-booking"),
+    path("bookings/<int:pk>/receipt/", BookingReceiptView.as_view(), name="booking-receipt"),
+    # Paystack webhook (no JWT — verified by HMAC signature)
+    path("webhooks/paystack/", PaystackWebhookView.as_view(), name="paystack-webhook"),
+    # Hostel gallery
+    path("hostels/<slug:slug>/gallery/", HostelImageListView.as_view(), name="hostel-gallery"),
+    path("gallery/<int:pk>/", HostelImageDeleteView.as_view(), name="hostel-gallery-delete"),
     # Manager
     path("manager/bookings/", ManagerBookingsView.as_view(), name="manager-bookings"),
-    # Superadmin
+    path("manager/analytics/", ManagerAnalyticsView.as_view(), name="manager-analytics"),
+    # Superadmin — overview & platform
+    path("admin/overview/", AdminOverviewView.as_view(), name="admin-overview"),
+    path("admin/settings/", AdminSettingsView.as_view(), name="admin-settings"),
+    # Superadmin — Paystack
+    path("admin/paystack/balance/", AdminPaystackBalanceView.as_view(), name="admin-paystack-balance"),
+    path("admin/paystack/transfers/", AdminPaystackTransfersView.as_view(), name="admin-paystack-transfers"),
+    # Superadmin — manager payouts
+    path("admin/managers/", AdminManagerListView.as_view(), name="admin-managers"),
+    path("admin/managers/<int:pk>/recipient/", AdminSetRecipientView.as_view(), name="admin-set-recipient"),
+    # Superadmin — users
     path("admin/users/", AdminUserListView.as_view(), name="admin-users"),
     path("admin/users/<int:pk>/", AdminUserUpdateView.as_view(), name="admin-user-update"),
+    # Superadmin — hostels
     path("admin/hostels/", AdminHostelListView.as_view(), name="admin-hostels"),
     path("admin/hostels/<slug:slug>/activate/", AdminHostelActivateView.as_view(), name="admin-hostel-activate"),
     path("admin/hostels/<slug:slug>/deactivate/", AdminHostelDeactivateView.as_view(), name="admin-hostel-deactivate"),
+    path("admin/hostels/<slug:slug>/verify/", AdminVerifyHostelView.as_view(), name="admin-hostel-verify"),
+    # Superadmin — bookings
     path("admin/bookings/", AdminBookingsView.as_view(), name="admin-bookings"),
     path("admin/bookings/<int:pk>/refund/", AdminRefundBookingView.as_view(), name="admin-booking-refund"),
+    path("admin/bookings/<int:pk>/approve/", AdminApproveBookingView.as_view(), name="admin-booking-approve"),
     path("", include(router.urls)),
 ]

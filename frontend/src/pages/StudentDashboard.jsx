@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Download } from "lucide-react";
 import { bookingApi, authApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
@@ -74,6 +74,7 @@ function BookingsTab() {
         const payUrl = b.payments?.[0]?.authorization_url;
         const ref = b.payments?.[0]?.reference;
         const isPending = b.payment_status === "pending";
+        const isPaid = b.payment_status === "paid" || b.payment_status === "paid_awaiting_approval";
 
         return (
           <div key={b.id} className="card p-4 space-y-3">
@@ -90,9 +91,22 @@ function BookingsTab() {
               </span>
             </div>
 
+            {/* Paid booking — download receipt */}
+            {isPaid && (
+              <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+                <a
+                  href={bookingApi.receiptUrl(b.id)}
+                  download
+                  className="btn-ghost px-3 py-1.5 text-sm inline-flex items-center gap-1.5"
+                >
+                  <Download size={14} /> Download Receipt
+                </a>
+              </div>
+            )}
+
             {/* Pending-booking actions */}
             {isPending && (
-              <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+              <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
                 {payUrl && (
                   <a href={payUrl} target="_blank" rel="noopener noreferrer"
                     className="btn-primary px-3 py-1.5 text-sm">

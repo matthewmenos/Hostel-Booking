@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2, Megaphone, BookOpen, Pencil, X } from "lucide-react";
+import {
+  Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2,
+  Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
+} from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonStatCard, SkeletonBookingRow } from "../components/Skeleton.jsx";
@@ -9,8 +12,10 @@ import { STATUS_UI } from "../utils/bookingStatus.js";
 const TABS = [
   { id: "overview",      label: "Overview" },
   { id: "rooms",         label: "Rooms & Beds" },
+  { id: "gallery",       label: "Gallery" },
   { id: "announcements", label: "Announcements" },
   { id: "bookings",      label: "Bookings" },
+  { id: "analytics",     label: "Analytics" },
 ];
 
 export default function ManagerPortal() {
@@ -71,18 +76,17 @@ export default function ManagerPortal() {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-gray-200">
+      {/* Tab bar — scrollable on mobile */}
+      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto dark:border-gray-700">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors
-              ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700"}`}>
+            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors
+              ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
       {tab === "overview" && (
         <OverviewTab
           hostels={hostels}
@@ -93,18 +97,11 @@ export default function ManagerPortal() {
           }
         />
       )}
-
-      {tab === "rooms" && (
-        <RoomsTab slug={active} rooms={rooms} onRoomsChange={setRooms} />
-      )}
-
-      {tab === "announcements" && (
-        <AnnouncementsTab slug={active} />
-      )}
-
-      {tab === "bookings" && (
-        <BookingsTab slug={active} hostels={hostels} />
-      )}
+      {tab === "rooms"         && <RoomsTab slug={active} rooms={rooms} onRoomsChange={setRooms} />}
+      {tab === "gallery"       && <GalleryTab slug={active} hostels={hostels} active={active} onHostelUpdated={(updated) => setHostels((prev) => prev.map((h) => h.slug === updated.slug ? updated : h))} />}
+      {tab === "announcements" && <AnnouncementsTab slug={active} />}
+      {tab === "bookings"      && <BookingsTab slug={active} hostels={hostels} />}
+      {tab === "analytics"     && <AnalyticsTab />}
     </div>
   );
 }
@@ -116,6 +113,8 @@ const CAMPUS_OPTIONS = [
   { value: "UPSA",  label: "University of Professional Studies" },
   { value: "OTHER", label: "Other" },
 ];
+
+// ── Overview tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab({ hostels, occupancy, activeHostel, onHostelUpdated }) {
   const { addToast } = useToast();
@@ -183,7 +182,7 @@ function OverviewTab({ hostels, occupancy, activeHostel, onHostelUpdated }) {
             <div className="text-sm text-gray-500 space-y-1">
               <p>{activeHostel.campus_display} · {activeHostel.location}</p>
               <p>GHS {activeHostel.base_price}/bed · Capacity: {activeHostel.total_capacity}</p>
-              {activeHostel.description && <p className="text-gray-600">{activeHostel.description}</p>}
+              {activeHostel.description && <p className="text-gray-600 dark:text-gray-300">{activeHostel.description}</p>}
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-3">
@@ -250,7 +249,7 @@ function StatCard({ icon: Icon, label, value }) {
   );
 }
 
-// ── Rooms & Beds tab ─────────────────────────────────────────────────────────
+// ── Rooms & Beds tab ──────────────────────────────────────────────────────────
 
 function RoomsTab({ slug, rooms, onRoomsChange }) {
   const { addToast } = useToast();
@@ -292,11 +291,11 @@ function RoomsTab({ slug, rooms, onRoomsChange }) {
         <button className="btn-primary" disabled={busy}><Plus size={16} /> Add</button>
       </form>
 
-      <div className="divide-y">
+      <div className="divide-y dark:divide-gray-700">
         {rooms.map((r) => (
           <div key={r.id}>
             <button
-              className="flex w-full items-center justify-between py-3 text-left hover:bg-gray-50 px-1 rounded"
+              className="flex w-full items-center justify-between py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 px-1 rounded transition"
               onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
               <span className="font-medium">{r.block}-{r.room_number}
                 <span className="ml-2 text-sm text-gray-500">({r.room_type_display})</span>
@@ -320,6 +319,8 @@ function RoomsTab({ slug, rooms, onRoomsChange }) {
 function BedManager({ slug, room, onRefresh }) {
   const { addToast } = useToast();
   const [bedLabel, setBedLabel] = useState("");
+  const [bulkCount, setBulkCount] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const addBed = async (e) => {
@@ -337,6 +338,23 @@ function BedManager({ slug, room, onRefresh }) {
     }
   };
 
+  const addBulk = async (e) => {
+    e.preventDefault();
+    const count = parseInt(bulkCount, 10);
+    if (!count || count < 1) return;
+    setBusy(true);
+    try {
+      await tenantApi.bulkCreateBeds(slug, room.id, { count, label_prefix: "Bed" });
+      setBulkCount("");
+      await onRefresh();
+      addToast("success", `${count} beds added.`);
+    } catch (err) {
+      addToast("error", err.response?.data?.detail ?? "Could not add beds.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteBed = async (bedId) => {
     try {
       await tenantApi.deleteBed(slug, bedId);
@@ -348,14 +366,14 @@ function BedManager({ slug, room, onRefresh }) {
   };
 
   return (
-    <div className="ml-4 mb-3 rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-2">
+    <div className="ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-2">
       {room.beds.map((bed) => (
-        <div key={bed.id} className="flex items-center justify-between rounded bg-white px-3 py-1.5 text-sm shadow-sm">
+        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-1.5 text-sm shadow-sm">
           <span className="flex items-center gap-2">
             <BedDouble size={14} />
             {bed.bed_label}
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium
-              ${bed.is_occupied ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+              ${bed.is_occupied ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
               {bed.is_occupied ? "Taken" : "Free"}
             </span>
           </span>
@@ -367,11 +385,123 @@ function BedManager({ slug, room, onRefresh }) {
         </div>
       ))}
       {room.beds.length === 0 && <p className="text-xs text-gray-400">No beds yet.</p>}
-      <form onSubmit={addBed} className="flex gap-2 pt-1">
-        <input className="input flex-1 text-sm py-1" placeholder="Bed label e.g. Bed A"
-          value={bedLabel} onChange={(e) => setBedLabel(e.target.value)} required />
-        <button className="btn-primary px-3 py-1 text-sm" disabled={busy}>Add</button>
-      </form>
+
+      <div className="flex gap-2 pt-1 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setBulkMode((v) => !v)}
+          className="text-xs text-brand hover:underline">
+          {bulkMode ? "Single add" : "Bulk add"}
+        </button>
+      </div>
+
+      {!bulkMode ? (
+        <form onSubmit={addBed} className="flex gap-2 pt-1">
+          <input className="input flex-1 text-sm py-1" placeholder="Bed label e.g. Bed A"
+            value={bedLabel} onChange={(e) => setBedLabel(e.target.value)} required />
+          <button className="btn-primary px-3 py-1 text-sm" disabled={busy}>Add</button>
+        </form>
+      ) : (
+        <form onSubmit={addBulk} className="flex gap-2 pt-1 items-center">
+          <input className="input w-24 text-sm py-1" type="number" min="1" max="50"
+            placeholder="Count" value={bulkCount} onChange={(e) => setBulkCount(e.target.value)} required />
+          <span className="text-xs text-gray-500">beds (auto-labelled)</span>
+          <button className="btn-primary px-3 py-1 text-sm" disabled={busy}>
+            <Plus size={13}/> Add all
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ── Gallery tab ───────────────────────────────────────────────────────────────
+
+function GalleryTab({ slug }) {
+  const { addToast } = useToast();
+  const [images, setImages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [caption, setCaption] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    hostelApi.gallery(slug)
+      .then(({ data }) => setImages(data.results ?? data))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { if (slug) load(); }, [slug]);
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("image", file);
+    if (caption) fd.append("caption", caption);
+    try {
+      await hostelApi.uploadImage(slug, fd);
+      setCaption("");
+      e.target.value = "";
+      load();
+      addToast("success", "Image uploaded.");
+    } catch {
+      addToast("error", "Could not upload image.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const remove = async (id) => {
+    try {
+      await hostelApi.deleteImage(id);
+      setImages((prev) => prev.filter((img) => img.id !== id));
+      addToast("success", "Image removed.");
+    } catch {
+      addToast("error", "Could not remove image.");
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 space-y-3">
+        <h2 className="font-semibold text-lg flex items-center gap-2"><Image size={18}/> Upload Gallery Photo</h2>
+        <div className="space-y-2">
+          <div>
+            <label className="label">Caption (optional)</label>
+            <input className="input" placeholder="e.g. Common room" value={caption}
+              onChange={(e) => setCaption(e.target.value)} />
+          </div>
+          <label className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-6 text-sm text-gray-500 hover:border-brand hover:text-brand transition ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+            <Upload size={18} />
+            {uploading ? "Uploading…" : "Click to select a photo"}
+            <input type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+        </div>
+      </div>
+
+      {loading && <p className="text-sm text-gray-400">Loading gallery…</p>}
+
+      {!loading && images.length === 0 && (
+        <p className="text-sm text-gray-400">No gallery images yet. Upload your first photo above.</p>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {images.map((img) => (
+          <div key={img.id} className="card overflow-hidden group relative">
+            <img src={img.image} alt={img.caption || "Gallery"} className="h-40 w-full object-cover" />
+            {img.caption && (
+              <p className="p-2 text-xs text-gray-500 dark:text-gray-400">{img.caption}</p>
+            )}
+            <button
+              onClick={() => remove(img.id)}
+              className="absolute right-2 top-2 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 transition hover:bg-red-600">
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -446,7 +576,7 @@ function AnnouncementsTab({ slug }) {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="font-semibold">{a.title}</p>
-                <p className="mt-1 text-sm text-gray-600">{a.body}</p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{a.body}</p>
                 <p className="mt-2 text-xs text-gray-400">
                   {new Date(a.created_at).toLocaleDateString("en-GH", { day:"numeric", month:"short", year:"numeric" })}
                 </p>
@@ -468,17 +598,11 @@ function BookingsTab({ slug: initialSlug, hostels }) {
   const [slug, setSlug] = useState(initialSlug);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [nextUrl, setNextUrl] = useState(null);
-  const [prevUrl, setPrevUrl] = useState(null);
 
   const load = (hostelSlug) => {
     setLoading(true);
     bookingApi.managerBookings(hostelSlug)
-      .then(({ data }) => {
-        setBookings(data.results ?? data);
-        setNextUrl(data.next ?? null);
-        setPrevUrl(data.previous ?? null);
-      })
+      .then(({ data }) => setBookings(data.results ?? data))
       .finally(() => setLoading(false));
   };
 
@@ -519,13 +643,83 @@ function BookingsTab({ slug: initialSlug, hostels }) {
           );
         })}
       </div>
+    </div>
+  );
+}
 
-      {(prevUrl || nextUrl) && (
-        <div className="flex justify-between">
-          <button className="btn-ghost px-3 py-1.5 text-sm" disabled={!prevUrl} onClick={() => load(slug)}>← Previous</button>
-          <button className="btn-ghost px-3 py-1.5 text-sm" disabled={!nextUrl} onClick={() => load(slug)}>Next →</button>
+// ── Analytics tab ─────────────────────────────────────────────────────────────
+
+function AnalyticsTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    bookingApi.managerAnalytics()
+      .then(({ data: d }) => setData(d))
+      .catch(() => setError("Could not load analytics."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="grid gap-4 sm:grid-cols-3">{[1,2,3].map(i=><SkeletonStatCard key={i}/>)}</div>;
+  if (error) return <p className="text-red-500 text-sm">{error}</p>;
+  if (!data) return null;
+
+  const maxRevenue = Math.max(...data.monthly.map((m) => m.revenue), 1);
+
+  return (
+    <div className="space-y-6">
+      {/* Top-line stats */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard icon={TrendingUp} label="Total Revenue" value={`GHS ${data.total_revenue.toLocaleString("en-GH", { minimumFractionDigits: 2 })}`} />
+        <StatCard icon={BookOpen} label="Paid Bookings" value={(data.by_status?.paid ?? 0) + (data.by_status?.paid_awaiting_approval ?? 0)} />
+        <StatCard icon={BarChart2} label="Pending" value={data.by_status?.pending ?? 0} />
+      </div>
+
+      {/* Monthly revenue bar chart */}
+      {data.monthly.length > 0 && (
+        <div className="card p-5">
+          <h2 className="mb-4 font-semibold text-lg flex items-center gap-2"><BarChart2 size={18}/> Monthly Revenue (GHS)</h2>
+          <div className="flex items-end gap-2 overflow-x-auto pb-2" style={{ height: 160 }}>
+            {data.monthly.map((m) => {
+              const pct = (m.revenue / maxRevenue) * 100;
+              return (
+                <div key={m.month} className="flex flex-col items-center gap-1 shrink-0" style={{ width: 48 }}>
+                  <span className="text-xs text-gray-500">{m.revenue > 0 ? `${(m.revenue/1000).toFixed(1)}k` : ""}</span>
+                  <div
+                    className="w-full rounded-t bg-brand transition-all"
+                    style={{ height: `${Math.max(pct, 2)}%`, minHeight: 4 }}
+                    title={`GHS ${m.revenue} — ${m.bookings} bookings`}
+                  />
+                  <span className="text-xs text-gray-400 truncate w-full text-center">{m.month.split(" ")[0]}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
+
+      {/* Per-hostel breakdown */}
+      <div className="card p-5">
+        <h2 className="mb-4 font-semibold text-lg">Per-Hostel Breakdown</h2>
+        <div className="space-y-3">
+          {data.hostels.map((h) => (
+            <div key={h.slug} className="flex items-center justify-between gap-4 rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3">
+              <div>
+                <p className="font-medium">{h.name}</p>
+                <p className="text-xs text-gray-500">{h.paid_bookings} paid bookings · GHS {h.revenue.toFixed(2)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(h.occupancy_pct, 100)}%` }} />
+                </div>
+                <span className="text-sm font-medium text-brand">{h.occupancy_pct}%</span>
+              </div>
+            </div>
+          ))}
+          {data.hostels.length === 0 && <p className="text-sm text-gray-400">No hostel data yet.</p>}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,11 +1,69 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Wifi, Snowflake, Zap, BedDouble, MapPin } from "lucide-react";
+import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
+
+function GalleryCarousel({ hostel }) {
+  const images = [
+    ...(hostel.image ? [{ id: "main", image: hostel.image, caption: hostel.name }] : []),
+    ...(hostel.gallery || []),
+  ];
+  const [idx, setIdx] = useState(0);
+
+  if (images.length === 0) {
+    return (
+      <div className="flex h-52 items-center justify-center bg-brand/10 text-brand">
+        <MapPin size={48} className="opacity-40" />
+      </div>
+    );
+  }
+
+  const prev = () => setIdx((i) => (i - 1 + images.length) % images.length);
+  const next = () => setIdx((i) => (i + 1) % images.length);
+  const cur = images[idx];
+
+  return (
+    <div className="relative h-56 overflow-hidden bg-gray-100 dark:bg-gray-800 sm:h-72">
+      <img
+        key={cur.id ?? cur.image}
+        src={cur.image}
+        alt={cur.caption || hostel.name}
+        className="h-full w-full object-cover transition-opacity duration-300"
+      />
+      {images.length > 1 && (
+        <>
+          <button
+            onClick={prev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60 transition"
+            aria-label="Previous image"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            onClick={next}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60 transition"
+            aria-label="Next image"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+            {images.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setIdx(i)}
+                className={`h-1.5 rounded-full transition-all ${i === idx ? "w-5 bg-white" : "w-1.5 bg-white/50"}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function HostelDetailPage() {
   const { slug } = useParams();
@@ -77,20 +135,21 @@ export default function HostelDetailPage() {
   return (
     <div className="space-y-6">
       <div className="card overflow-hidden">
-        <div className="flex h-48 items-center justify-center bg-brand/10 text-brand">
-          {hostel.image ? (
-            <img src={hostel.image} alt={hostel.name} className="h-full w-full object-cover" />
-          ) : (
-            <MapPin size={48} />
-          )}
-        </div>
+        <GalleryCarousel hostel={hostel} />
         <div className="p-5">
-          <h1 className="text-2xl font-bold">{hostel.name}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold">{hostel.name}</h1>
+            {hostel.is_verified && (
+              <span className="flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                <BadgeCheck size={13} /> Verified
+              </span>
+            )}
+          </div>
           <p className="text-gray-500">
             {hostel.campus_display} · {hostel.location}
           </p>
           <p className="mt-2 text-xl font-bold text-brand">GHS {hostel.base_price} / bed</p>
-          {hostel.description && <p className="mt-3 text-gray-600">{hostel.description}</p>}
+          {hostel.description && <p className="mt-3 text-gray-600 dark:text-gray-300">{hostel.description}</p>}
         </div>
       </div>
 

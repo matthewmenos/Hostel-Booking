@@ -7,29 +7,42 @@ authoritative ``GlobalBooking`` + ``Payment`` in the GLOBAL database. The
 global write is the source of truth; the tenant write is the operational
 side-effect (marking the physical bed occupied).
 """
+import io
+import json
+import logging
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Sum, Q
+from django.db.models.functions import TruncMonth
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filters
 from rest_framework import viewsets, generics, status
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from tenants import tenant_manager
 from tenants.context import set_current_tenant, clear_current_tenant
 
-from .models import TenantHostel, GlobalBooking, Payment, PaymentProvider, PaymentStatus
+from .models import TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus
 from .serializers import (
     TenantHostelSerializer,
+    HostelImageSerializer,
     GlobalBookingSerializer,
     CreateBookingSerializer,
     AdminUserSerializer,
 )
 from .permissions import IsManager, IsOwnerOrReadOnly, IsSuperAdmin
 from . import payments as payment_gateway
+
+logger = logging.getLogger("global_app.views")
 
 # A pending reservation is held for this long before it may be expired.
 RESERVATION_TTL = timedelta(minutes=30)
@@ -54,7 +67,7 @@ class HostelViewSet(viewsets.ModelViewSet):
     Managers: create/update their own hostels.
     """
 
-    queryset = TenantHostel.objects.filter(is_active=True)
+    queryset = TenantHostel.objects.filter(is_active=True).prefetch_related("gallery")
     serializer_class = TenantHostelSerializer
     permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     filter_backends = [DjangoFilterBackend]
@@ -331,7 +344,7 @@ class AdminRefundBookingView(generics.GenericAPIView):
 
     def post(self, request, pk):
         booking = get_object_or_404(GlobalBooking, pk=pk)
-        if booking.payment_status != PaymentStatus.PAID:
+        if booking.payment_status not in (PaymentStatus.PAID, PaymentStatus.PAID_AWAITING_APPROVAL):
             return Response(
                 {"detail": "Only paid bookings can be marked refunded."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -339,3 +352,602 @@ class AdminRefundBookingView(generics.GenericAPIView):
         booking.payment_status = PaymentStatus.REFUNDED
         booking.save(update_fields=["payment_status"])
         return Response(GlobalBookingSerializer(booking).data)
+
+
+# ---------------------------------------------------------------------------
+# Paystack webhook
+# ---------------------------------------------------------------------------
+
+class PaystackWebhookView(APIView):
+    """
+    Receive Paystack charge.success events.
+
+    Verifies the HMAC-SHA512 signature, matches the payment by reference,
+    and advances the booking to paid_awaiting_approval.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []  # no JWT needed — webhook is server-to-server
+
+    def post(self, request):
+        signature = request.META.get("HTTP_X_PAYSTACK_SIGNATURE", "")
+        if not payment_gateway.verify_paystack_signature(request.body, signature):
+            return HttpResponse(status=400)
+
+        try:
+            event = json.loads(request.body)
+        except json.JSONDecodeError:
+            return HttpResponse(status=400)
+
+        if event.get("event") != "charge.success":
+            return HttpResponse(status=200)  # acknowledge but ignore other events
+
+        data = event.get("data", {})
+        reference = data.get("reference", "")
+
+        payment = Payment.objects.filter(reference=reference).select_related(
+            "booking__hostel__owner", "booking__student"
+        ).first()
+
+        if not payment:
+            logger.warning("Webhook: no payment found for reference %s", reference)
+            return HttpResponse(status=200)
+
+        booking = payment.booking
+
+        if booking.payment_status != PaymentStatus.PENDING:
+            return HttpResponse(status=200)  # already processed
+
+        payment.status = PaymentStatus.PAID_AWAITING_APPROVAL
+        payment.save(update_fields=["status"])
+
+        booking.payment_status = PaymentStatus.PAID_AWAITING_APPROVAL
+        booking.save(update_fields=["payment_status"])
+
+        # Send confirmation email to student.
+        _send_booking_confirmation(booking, payment)
+
+        logger.info("Webhook: booking #%s moved to paid_awaiting_approval", booking.pk)
+        return HttpResponse(status=200)
+
+
+def _send_booking_confirmation(booking, payment):
+    student = booking.student
+    name = student.get_full_name() or student.username
+    try:
+        send_mail(
+            subject=f"Booking #{booking.pk} confirmed — HostelHub Ghana",
+            message=(
+                f"Hi {name},\n\n"
+                f"Your payment of GHS {payment.amount} for a bed at {booking.hostel.name} "
+                f"has been received.\n\n"
+                f"Booking ID: #{booking.pk}\n"
+                f"Room type: {booking.room_type}\n"
+                f"Reference: {payment.reference}\n\n"
+                f"Your booking is now awaiting admin approval. "
+                f"You will be notified once it is approved.\n\n"
+                f"— HostelHub Ghana"
+            ),
+            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@hostelhub.gh"),
+            recipient_list=[student.email],
+            fail_silently=True,
+        )
+    except Exception as exc:
+        logger.error("Failed to send booking confirmation email: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Admin: approve booking + payout
+# ---------------------------------------------------------------------------
+
+class AdminApproveBookingView(generics.GenericAPIView):
+    """
+    Approve a paid-awaiting-approval booking and initiate manager payout.
+
+    1. Validates booking is in paid_awaiting_approval state.
+    2. Calls payment_gateway.initiate_payout() → Paystack Transfer API.
+    3. Advances booking to paid (fully approved).
+    """
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk):
+        booking = get_object_or_404(
+            GlobalBooking.objects.select_related("hostel__owner").prefetch_related("payments"),
+            pk=pk,
+        )
+        if booking.payment_status != PaymentStatus.PAID_AWAITING_APPROVAL:
+            return Response(
+                {"detail": "Booking must be in paid_awaiting_approval state to approve."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment = booking.payments.order_by("-created_at").first()
+        if not payment:
+            return Response({"detail": "No payment record found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payout_result = payment_gateway.initiate_payout(payment)
+        except RuntimeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        booking.payment_status = PaymentStatus.PAID
+        booking.approved_at = timezone.now()
+        booking.save(update_fields=["payment_status", "approved_at"])
+
+        payment.status = PaymentStatus.PAID
+        payment.save(update_fields=["status"])
+
+        return Response({
+            "booking": GlobalBookingSerializer(booking).data,
+            "payout": payout_result,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Hostel image gallery
+# ---------------------------------------------------------------------------
+
+class HostelImageListView(generics.ListCreateAPIView):
+    """List gallery images for a hostel; managers upload new ones."""
+
+    serializer_class = HostelImageSerializer
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsAuthenticatedOrReadOnly()]
+        return [IsManager()]
+
+    def get_queryset(self):
+        hostel = get_object_or_404(TenantHostel, slug=self.kwargs["slug"])
+        return hostel.gallery.all()
+
+    def perform_create(self, serializer):
+        hostel = get_object_or_404(TenantHostel, slug=self.kwargs["slug"])
+        if hostel.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not own this hostel.")
+        serializer.save(hostel=hostel)
+
+
+class HostelImageDeleteView(generics.DestroyAPIView):
+    """Delete a single gallery image — owner manager only."""
+
+    serializer_class = HostelImageSerializer
+    permission_classes = [IsManager]
+
+    def get_queryset(self):
+        return HostelImage.objects.filter(hostel__owner=self.request.user)
+
+
+# ---------------------------------------------------------------------------
+# Booking receipt (plain-text — PDF needs reportlab which may not be installed)
+# ---------------------------------------------------------------------------
+
+class BookingReceiptView(APIView):
+    """
+    Return a downloadable text receipt for a paid or approved booking.
+    The frontend triggers a browser download by setting Content-Disposition.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        booking = get_object_or_404(
+            GlobalBooking.objects.select_related("hostel", "student").prefetch_related("payments"),
+            pk=pk,
+            student=request.user,
+        )
+        if booking.payment_status not in (
+            PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID
+        ):
+            return Response(
+                {"detail": "Receipt is only available for paid bookings."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment = booking.payments.order_by("-created_at").first()
+        student = booking.student
+        name = student.get_full_name() or student.username
+
+        try:
+            from reportlab.pdfgen import canvas as rl_canvas
+            from reportlab.lib.pagesizes import A4
+            buf = io.BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=A4)
+            w, h = A4
+            c.setFont("Helvetica-Bold", 18)
+            c.drawString(50, h - 60, "HostelHub Ghana — Booking Receipt")
+            c.setFont("Helvetica", 12)
+            lines = [
+                f"Booking ID:   #{booking.pk}",
+                f"Date:         {booking.created_at.strftime('%d %B %Y')}",
+                f"Student:      {name} ({student.email})",
+                f"Hostel:       {booking.hostel.name}",
+                f"Campus:       {booking.hostel.get_campus_display()}",
+                f"Room type:    {booking.room_type}",
+                f"Amount paid:  GHS {booking.amount}",
+                f"Reference:    {payment.reference if payment else 'N/A'}",
+                f"Status:       {booking.get_payment_status_display()}",
+            ]
+            y = h - 110
+            for line in lines:
+                c.drawString(50, y, line)
+                y -= 24
+            c.setFont("Helvetica-Oblique", 10)
+            c.drawString(50, 60, "Thank you for booking with HostelHub Ghana.")
+            c.save()
+            buf.seek(0)
+            response = HttpResponse(buf, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="receipt_booking_{booking.pk}.pdf"'
+            return response
+        except ImportError:
+            pass
+
+        # Plain-text fallback when reportlab is not installed.
+        lines = [
+            "HostelHub Ghana — Booking Receipt",
+            "=" * 40,
+            f"Booking ID:   #{booking.pk}",
+            f"Date:         {booking.created_at.strftime('%d %B %Y')}",
+            f"Student:      {name} ({student.email})",
+            f"Hostel:       {booking.hostel.name}",
+            f"Campus:       {booking.hostel.get_campus_display()}",
+            f"Room type:    {booking.room_type}",
+            f"Amount paid:  GHS {booking.amount}",
+            f"Reference:    {payment.reference if payment else 'N/A'}",
+            f"Status:       {booking.get_payment_status_display()}",
+            "",
+            "Thank you for booking with HostelHub Ghana.",
+        ]
+        content = "\n".join(lines)
+        response = HttpResponse(content, content_type="text/plain")
+        response["Content-Disposition"] = f'attachment; filename="receipt_booking_{booking.pk}.txt"'
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Manager analytics
+# ---------------------------------------------------------------------------
+
+class ManagerAnalyticsView(APIView):
+    """
+    Returns occupancy stats, revenue totals, and monthly booking trends
+    for all hostels owned by the current manager.
+    """
+    permission_classes = [IsManager]
+
+    def get(self, request):
+        hostels = TenantHostel.objects.filter(owner=request.user)
+        hostel_slugs = list(hostels.values_list("slug", flat=True))
+
+        paid_statuses = [PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID]
+
+        # Total revenue (paid bookings only).
+        revenue_qs = GlobalBooking.objects.filter(
+            hostel__in=hostels, payment_status__in=paid_statuses
+        ).aggregate(total=Sum("amount"))
+        total_revenue = float(revenue_qs["total"] or 0)
+
+        # Total bookings by status.
+        status_counts = (
+            GlobalBooking.objects.filter(hostel__in=hostels)
+            .values("payment_status")
+            .annotate(count=Count("id"))
+        )
+        by_status = {row["payment_status"]: row["count"] for row in status_counts}
+
+        # Monthly revenue for the last 12 months.
+        twelve_months_ago = timezone.now() - timedelta(days=365)
+        monthly = (
+            GlobalBooking.objects.filter(
+                hostel__in=hostels,
+                payment_status__in=paid_statuses,
+                created_at__gte=twelve_months_ago,
+            )
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(revenue=Sum("amount"), bookings=Count("id"))
+            .order_by("month")
+        )
+        monthly_data = [
+            {
+                "month": row["month"].strftime("%b %Y"),
+                "revenue": float(row["revenue"] or 0),
+                "bookings": row["bookings"],
+            }
+            for row in monthly
+        ]
+
+        # Per-hostel stats (we get bed counts from the global booking table
+        # since per-tenant DBs are not queried here).
+        hostel_stats = []
+        for h in hostels:
+            h_bookings = GlobalBooking.objects.filter(hostel=h)
+            h_paid = h_bookings.filter(payment_status__in=paid_statuses).count()
+            h_revenue = float(
+                h_bookings.filter(payment_status__in=paid_statuses)
+                .aggregate(t=Sum("amount"))["t"] or 0
+            )
+            hostel_stats.append({
+                "slug": h.slug,
+                "name": h.name,
+                "total_capacity": h.total_capacity,
+                "paid_bookings": h_paid,
+                "revenue": h_revenue,
+                "occupancy_pct": round(h_paid / h.total_capacity * 100, 1) if h.total_capacity else 0,
+            })
+
+        return Response({
+            "total_revenue": total_revenue,
+            "by_status": by_status,
+            "monthly": monthly_data,
+            "hostels": hostel_stats,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Admin: verify hostel
+# ---------------------------------------------------------------------------
+
+class AdminVerifyHostelView(generics.GenericAPIView):
+    """Toggle verified badge on a hostel — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, slug):
+        hostel = get_object_or_404(TenantHostel, slug=slug)
+        hostel.is_verified = not hostel.is_verified
+        hostel.save(update_fields=["is_verified"])
+        return Response(TenantHostelSerializer(hostel).data)
+
+
+# ---------------------------------------------------------------------------
+# Admin: platform-wide overview stats
+# ---------------------------------------------------------------------------
+
+class AdminOverviewView(APIView):
+    """Platform-wide KPI snapshot — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        paid_statuses = [PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID]
+        twelve_months_ago = timezone.now() - timedelta(days=365)
+
+        total_users    = User.objects.count()
+        total_students = User.objects.filter(role="student").count()
+        total_managers = User.objects.filter(role="manager").count()
+        total_hostels  = TenantHostel.objects.count()
+        active_hostels = TenantHostel.objects.filter(is_active=True).count()
+
+        total_bookings  = GlobalBooking.objects.count()
+        paid_bookings   = GlobalBooking.objects.filter(payment_status__in=paid_statuses).count()
+        pending_bookings = GlobalBooking.objects.filter(payment_status=PaymentStatus.PENDING).count()
+        awaiting_approval = GlobalBooking.objects.filter(
+            payment_status=PaymentStatus.PAID_AWAITING_APPROVAL
+        ).count()
+
+        total_revenue = float(
+            GlobalBooking.objects.filter(payment_status__in=paid_statuses)
+            .aggregate(t=Sum("amount"))["t"] or 0
+        )
+        pending_revenue = float(
+            GlobalBooking.objects.filter(payment_status=PaymentStatus.PAID_AWAITING_APPROVAL)
+            .aggregate(t=Sum("amount"))["t"] or 0
+        )
+
+        # Monthly bookings + revenue (last 12 months).
+        monthly = (
+            GlobalBooking.objects.filter(
+                payment_status__in=paid_statuses,
+                created_at__gte=twelve_months_ago,
+            )
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(revenue=Sum("amount"), bookings=Count("id"))
+            .order_by("month")
+        )
+        monthly_data = [
+            {
+                "month": row["month"].strftime("%b %Y"),
+                "revenue": float(row["revenue"] or 0),
+                "bookings": row["bookings"],
+            }
+            for row in monthly
+        ]
+
+        # New users in the last 30 days.
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        new_users_30d = User.objects.filter(date_joined__gte=thirty_days_ago).count()
+
+        # Top 5 hostels by revenue.
+        top_hostels = (
+            GlobalBooking.objects.filter(payment_status__in=paid_statuses)
+            .values("hostel__name", "hostel__slug")
+            .annotate(revenue=Sum("amount"), bookings=Count("id"))
+            .order_by("-revenue")[:5]
+        )
+
+        return Response({
+            "users": {
+                "total": total_users,
+                "students": total_students,
+                "managers": total_managers,
+                "new_last_30d": new_users_30d,
+            },
+            "hostels": {
+                "total": total_hostels,
+                "active": active_hostels,
+            },
+            "bookings": {
+                "total": total_bookings,
+                "paid": paid_bookings,
+                "pending": pending_bookings,
+                "awaiting_approval": awaiting_approval,
+            },
+            "revenue": {
+                "total": total_revenue,
+                "pending_approval": pending_revenue,
+            },
+            "monthly": monthly_data,
+            "top_hostels": list(top_hostels),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Admin: Paystack balance + transfer history
+# ---------------------------------------------------------------------------
+
+class AdminPaystackBalanceView(APIView):
+    """Fetch the platform's current Paystack balance — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        import requests as http_requests
+        from .payments import PAYSTACK_SECRET, _paystack_headers, PAYSTACK_BASE
+        if not PAYSTACK_SECRET:
+            return Response({"detail": "Paystack not configured.", "stub": True, "balances": []})
+        try:
+            resp = http_requests.get(
+                f"{PAYSTACK_BASE}/balance",
+                headers=_paystack_headers(),
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return Response(resp.json().get("data", []))
+        except Exception as exc:
+            logger.error("Paystack balance fetch failed: %s", exc)
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+class AdminPaystackTransfersView(APIView):
+    """List all transfers made from the platform balance — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        import requests as http_requests
+        from .payments import PAYSTACK_SECRET, _paystack_headers, PAYSTACK_BASE
+        if not PAYSTACK_SECRET:
+            # Return local Payment records that have transfer data.
+            transfers = Payment.objects.exclude(transfer_code="").select_related(
+                "booking__hostel__owner", "booking__student"
+            ).order_by("-created_at")[:50]
+            data = [
+                {
+                    "transfer_code": p.transfer_code,
+                    "reference":     p.transfer_reference,
+                    "amount":        float(p.manager_payout or 0),
+                    "commission":    float(p.platform_commission or 0),
+                    "manager":       p.booking.hostel.owner.username,
+                    "hostel":        p.booking.hostel.name,
+                    "booking_id":    p.booking.pk,
+                    "stub":          True,
+                }
+                for p in transfers
+            ]
+            return Response(data)
+
+        page = request.query_params.get("page", 1)
+        perPage = request.query_params.get("perPage", 50)
+        try:
+            resp = http_requests.get(
+                f"{PAYSTACK_BASE}/transfer",
+                headers=_paystack_headers(),
+                params={"page": page, "perPage": perPage},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return Response(resp.json())
+        except Exception as exc:
+            logger.error("Paystack transfers fetch failed: %s", exc)
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+# ---------------------------------------------------------------------------
+# Admin: manager payout recipient management
+# ---------------------------------------------------------------------------
+
+class AdminManagerListView(generics.ListAPIView):
+    """List all managers with their payout recipient codes — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+    serializer_class = AdminUserSerializer
+
+    def get_queryset(self):
+        return User.objects.filter(role="manager").order_by("username")
+
+
+class AdminSetRecipientView(generics.GenericAPIView):
+    """Set or clear a manager's Paystack recipient code — superadmin only."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def patch(self, request, pk):
+        manager = get_object_or_404(User, pk=pk, role="manager")
+        code = request.data.get("paystack_recipient_code", "").strip()
+        manager.paystack_recipient_code = code
+        manager.save(update_fields=["paystack_recipient_code"])
+        return Response(AdminUserSerializer(manager).data)
+
+
+# ---------------------------------------------------------------------------
+# Admin: platform settings (read from / write to env-backed Django settings)
+# ---------------------------------------------------------------------------
+
+class AdminSettingsView(APIView):
+    """
+    GET  — return current platform settings.
+    PATCH — update in-memory settings for this process lifetime.
+
+    NOTE: Persisting settings across deploys requires updating the Render
+    environment variables. The PATCH here gives instant effect for the current
+    process and returns the updated values so the UI can reflect them.
+    """
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        return Response(self._current())
+
+    def patch(self, request):
+        allowed = {"PLATFORM_NAME", "PLATFORM_CONTACT_EMAIL", "PLATFORM_COMMISSION_RATE"}
+        updated = {}
+        for key, value in request.data.items():
+            if key not in allowed:
+                continue
+            if key == "PLATFORM_COMMISSION_RATE":
+                try:
+                    value = float(value)
+                    if not (0 <= value <= 1):
+                        return Response(
+                            {"detail": "PLATFORM_COMMISSION_RATE must be between 0 and 1."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                except (TypeError, ValueError):
+                    return Response(
+                        {"detail": "PLATFORM_COMMISSION_RATE must be a number."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            setattr(settings, key, value)
+            # Also update the payments module constant so new payouts use the new rate.
+            if key == "PLATFORM_COMMISSION_RATE":
+                import global_app.payments as _pm
+                _pm.COMMISSION_RATE = float(value)
+            updated[key] = value
+
+        return Response({**self._current(), "updated": list(updated.keys())})
+
+    @staticmethod
+    def _current():
+        from global_app.payments import COMMISSION_RATE
+        return {
+            "PLATFORM_NAME":           getattr(settings, "PLATFORM_NAME", "HostelHub Ghana"),
+            "PLATFORM_CONTACT_EMAIL":  getattr(settings, "PLATFORM_CONTACT_EMAIL", ""),
+            "PLATFORM_COMMISSION_RATE": COMMISSION_RATE,
+            "PAYSTACK_CONFIGURED":     bool(getattr(settings, "R2_ENABLED", False) or
+                                            __import__("os").getenv("PAYSTACK_SECRET_KEY")),
+            "R2_ENABLED":              getattr(settings, "R2_ENABLED", False),
+            "DEBUG":                   getattr(settings, "DEBUG", False),
+            "ADMIN_USERNAME":          __import__("os").getenv("ADMIN_USERNAME", ""),
+            "ADMIN_EMAIL":             __import__("os").getenv("ADMIN_EMAIL", ""),
+        }

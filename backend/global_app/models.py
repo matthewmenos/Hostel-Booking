@@ -45,6 +45,7 @@ class TenantHostel(models.Model):
         on_delete=models.CASCADE,
     )
     is_active = models.BooleanField(default=True)
+    is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -54,9 +55,28 @@ class TenantHostel(models.Model):
         return f"{self.name} — {self.get_campus_display()}"
 
 
+class HostelImage(models.Model):
+    """Additional gallery images for a hostel (managed by the hostel owner)."""
+
+    hostel = models.ForeignKey(
+        TenantHostel, related_name="gallery", on_delete=models.CASCADE
+    )
+    image = models.ImageField(upload_to="hostel_gallery/")
+    caption = models.CharField(max_length=200, blank=True)
+    order = models.PositiveSmallIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("order", "uploaded_at")
+
+    def __str__(self):
+        return f"Image #{self.pk} for {self.hostel.slug}"
+
+
 class PaymentStatus(models.TextChoices):
     PENDING = "pending", "Pending"
-    PAID = "paid", "Paid"
+    PAID_AWAITING_APPROVAL = "paid_awaiting_approval", "Paid — Awaiting Admin Approval"
+    PAID = "paid", "Paid & Approved"
     FAILED = "failed", "Failed"
     EXPIRED = "expired", "Expired"
     REFUNDED = "refunded", "Refunded"
@@ -76,10 +96,12 @@ class GlobalBooking(models.Model):
     bed_space_ref = models.IntegerField(null=True, blank=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_status = models.CharField(
-        max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
+        max_length=30, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )
     # A pending reservation expires if not paid in time; frees the bed.
     expiry_timestamp = models.DateTimeField(null=True, blank=True)
+    # Set when admin approves the booking and triggers payout to manager.
+    approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -107,12 +129,17 @@ class Payment(models.Model):
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(
-        max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
+        max_length=30, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )
     # Gateway transaction reference (filled in by the gateway integration).
     reference = models.CharField(max_length=100, blank=True, db_index=True)
     # Authorization URL returned by the gateway for the customer to complete payment.
     authorization_url = models.URLField(blank=True)
+    # Paystack transfer fields (filled after admin approves and payout is initiated).
+    transfer_reference = models.CharField(max_length=100, blank=True)
+    transfer_code = models.CharField(max_length=100, blank=True)
+    platform_commission = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    manager_payout = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

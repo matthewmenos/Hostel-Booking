@@ -23,6 +23,8 @@ class User(AbstractUser):
     phone = models.CharField(max_length=20, blank=True)
     # University the student is affiliated with (e.g. KNUST, Legon).
     university = models.CharField(max_length=120, blank=True)
+    # Paystack recipient code for manager payouts (e.g. RCP_xxxx).
+    paystack_recipient_code = models.CharField(max_length=100, blank=True)
 
     @property
     def is_manager(self) -> bool:

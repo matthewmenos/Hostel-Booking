@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell } from "lucide-react";
+import {
+  Bell, Megaphone, MessageCircle, Wrench, CreditCard, CheckCircle, CircleX,
+  Medal, Circle, PartyPopper, TriangleAlert,
+} from "lucide-react";
 import { useNotifications } from "../context/NotificationContext.jsx";
 
 const TABS = [
@@ -11,19 +14,27 @@ const TABS = [
   { key: "system",   label: "System" },
 ];
 
-const TYPE_ICON = {
-  msg_broadcast: "📢",
-  msg_direct: "💬",
-  report: "🔧",
-  booking_paid: "💳",
-  booking_approved: "✅",
-  booking_cancelled: "❌",
-  hostel_verified: "🏅",
-  hostel_activated: "🟢",
-  hostel_deactivated: "🔴",
-  verif_approved: "🎉",
-  verif_rejected: "⚠️",
+const TYPE_ICON_MAP = {
+  msg_broadcast:    <Megaphone      size={20} className="text-brand" />,
+  msg_direct:       <MessageCircle  size={20} className="text-blue-500" />,
+  report:           <Wrench         size={20} className="text-amber-500" />,
+  booking_paid:     <CreditCard     size={20} className="text-purple-500" />,
+  booking_approved: <CheckCircle    size={20} className="text-green-500" />,
+  booking_cancelled:<CircleX        size={20} className="text-red-500" />,
+  hostel_verified:  <Medal          size={20} className="text-yellow-500" />,
+  hostel_activated: <Circle         size={20} className="fill-green-500 text-green-500" />,
+  hostel_deactivated:<Circle        size={20} className="fill-red-500 text-red-500" />,
+  verif_approved:   <PartyPopper    size={20} className="text-green-500" />,
+  verif_rejected:   <TriangleAlert  size={20} className="text-red-500" />,
 };
+
+function NotifIcon({ type }) {
+  return (
+    <span className="shrink-0 mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
+      {TYPE_ICON_MAP[type] ?? <Bell size={20} className="text-gray-400" />}
+    </span>
+  );
+}
 
 const MESSAGE_TYPES = ["msg_broadcast", "msg_direct"];
 const REPORT_TYPES  = ["report"];
@@ -42,7 +53,7 @@ function timeAgo(dateStr) {
 }
 
 export default function NotificationsPage() {
-  const { notifications, unreadCount, markRead, markAllRead, loadNotifications } = useNotifications();
+  const { notifications, unreadCount, nextNotifUrl, markRead, markAllRead, loadNotifications, loadMoreNotifications } = useNotifications();
   const [activeTab, setActiveTab] = useState("all");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -115,38 +126,46 @@ export default function NotificationsPage() {
           <p className="text-sm">No notifications here</p>
         </div>
       ) : (
-        <div className="divide-y divide-gray-100 dark:divide-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {filtered.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => handleClick(n)}
-              className={`w-full text-left flex items-start gap-3 px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition ${
-                !n.is_read ? "bg-brand/5 dark:bg-brand/10" : "bg-white dark:bg-gray-900"
-              }`}
-            >
-              <span className="text-2xl leading-none mt-0.5 shrink-0">
-                {TYPE_ICON[n.notif_type] ?? "🔔"}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${!n.is_read ? "font-semibold" : ""}`}>{n.title}</p>
-                {n.body && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap break-words">
-                    {n.body}
-                  </p>
-                )}
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-gray-400">{timeAgo(n.created_at)}</span>
-                  {n.sender_username && (
-                    <span className="text-xs text-gray-400">· from {n.sender_username}</span>
+        <>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {filtered.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => handleClick(n)}
+                className={`w-full text-left flex items-start gap-3 px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition ${
+                  !n.is_read ? "bg-brand/5 dark:bg-brand/10" : "bg-white dark:bg-gray-900"
+                }`}
+              >
+                <NotifIcon type={n.notif_type} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm ${!n.is_read ? "font-semibold" : ""}`}>{n.title}</p>
+                  {n.body && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-wrap break-words">
+                      {n.body}
+                    </p>
                   )}
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-gray-400">{timeAgo(n.created_at)}</span>
+                    {n.sender_username && (
+                      <span className="text-xs text-gray-400">· from {n.sender_username}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {!n.is_read && (
-                <span className="mt-2 h-2 w-2 rounded-full bg-brand shrink-0" />
-              )}
+                {!n.is_read && (
+                  <span className="mt-2 h-2 w-2 rounded-full bg-brand shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+          {activeTab === "all" && nextNotifUrl && (
+            <button
+              onClick={loadMoreNotifications}
+              className="btn-ghost w-full py-2 text-sm mt-2"
+            >
+              Load more
             </button>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );

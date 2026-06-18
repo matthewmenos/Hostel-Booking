@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, UserPlus } from "lucide-react";
+import { Eye, EyeOff, UserPlus, Landmark, GraduationCap } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 
-const UNI_GROUPS = [
-  { label: "Public Universities",  options: PUBLIC_UNIVERSITIES },
-  { label: "Private Universities", options: PRIVATE_UNIVERSITIES },
+const UNI_CATEGORIES = [
+  { value: "public",  icon: Landmark,      label: "Public",  options: PUBLIC_UNIVERSITIES },
+  { value: "private", icon: GraduationCap, label: "Private", options: PRIVATE_UNIVERSITIES },
 ];
 
 const ROLE_OPTIONS = [
@@ -31,6 +31,7 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [uniCat, setUniCat] = useState("public");
 
   const set = (field) => (e) => {
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -147,16 +148,33 @@ export default function RegisterPage() {
         </div>
 
         {form.role === "student" && (
-          <div>
+          <div className="space-y-2">
             <label className="label">University</label>
+            {/* Category radio cards */}
+            <div className="grid grid-cols-2 gap-2">
+              {UNI_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.value}
+                  type="button"
+                  onClick={() => {
+                    setUniCat(cat.value);
+                    setForm((f) => ({ ...f, university: "" }));
+                  }}
+                  className={`flex items-center gap-1.5 rounded-lg border p-2.5 text-sm font-medium transition
+                    ${uniCat === cat.value
+                      ? "border-brand bg-brand/5 text-brand"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-600 dark:text-gray-300"}`}
+                >
+                  <cat.icon size={14} className="shrink-0" />
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            {/* Filtered dropdown */}
             <select className="input" value={form.university} onChange={set("university")}>
-              <option value="">— Select your university —</option>
-              {UNI_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.options.map((u) => (
-                    <option key={u.value} value={u.value}>{u.label}</option>
-                  ))}
-                </optgroup>
+              <option value="">— Select university —</option>
+              {UNI_CATEGORIES.find((c) => c.value === uniCat)?.options.map((u) => (
+                <option key={u.value} value={u.value}>{u.label}</option>
               ))}
             </select>
             {fieldError("university")}

@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, Check, Upload, Trash2, MapPin,
-  AlertCircle, CheckCircle2, X,
+  AlertCircle, CheckCircle2, X, Flag, Globe,
 } from "lucide-react";
 import { managerApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
@@ -126,7 +126,9 @@ function Step0({ form, setForm }) {
                 : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-600 dark:bg-gray-800"
               }`}
           >
-            <span className="text-3xl">{opt === "Ghanaian" ? "🇬🇭" : "🌍"}</span>
+            {opt === "Ghanaian"
+              ? <Flag size={28} className="text-green-600" />
+              : <Globe size={28} className="text-blue-500" />}
             <span className="font-semibold">{opt}</span>
           </button>
         ))}

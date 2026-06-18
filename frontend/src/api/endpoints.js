@@ -40,7 +40,14 @@ export const bookingApi = {
   myBookings:     () => api.get("/bookings/"),
   book:           (payload) => api.post("/book/", payload),
   cancel:         (bookingId) => api.post(`/bookings/${bookingId}/cancel/`),
-  receiptUrl:     (bookingId) => `/api/bookings/${bookingId}/receipt/`,
+  downloadReceipt: async (bookingId) => {
+    const res = await api.get(`/bookings/${bookingId}/receipt/`, { responseType: "blob" });
+    const ext  = res.headers["content-type"]?.includes("pdf") ? "pdf" : "txt";
+    const url  = URL.createObjectURL(res.data);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `receipt_booking_${bookingId}.${ext}`; a.click();
+    URL.revokeObjectURL(url);
+  },
   managerBookings:(hostelSlug) =>
     api.get("/manager/bookings/", { params: hostelSlug ? { hostel: hostelSlug } : {} }),
   managerAnalytics: () => api.get("/manager/analytics/"),
@@ -55,6 +62,7 @@ export const tenantApi = {
   bulkCreateBeds:     (slug, roomId, payload) =>
     api.post(`/tenant/rooms/${roomId}/bulk-beds/`, payload, { tenant: slug }),
   deleteBed:          (slug, id) => api.delete(`/tenant/beds/${id}/`, { tenant: slug }),
+  vacateBed:          (slug, id) => api.patch(`/tenant/beds/${id}/`, { is_occupied: false }, { tenant: slug }),
   announcements:      (slug) => api.get("/tenant/announcements/", { tenant: slug }),
   createAnnouncement: (slug, payload) => api.post("/tenant/announcements/", payload, { tenant: slug }),
   deleteAnnouncement: (slug, id) => api.delete(`/tenant/announcements/${id}/`, { tenant: slug }),

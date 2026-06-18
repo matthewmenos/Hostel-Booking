@@ -8,6 +8,7 @@ export function NotificationProvider({ children }) {
   const { isAuthed } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
+  const [nextUrl, setNextUrl] = useState(null);
   const intervalRef = useRef(null);
 
   const fetchUnreadCount = useCallback(async () => {
@@ -25,10 +26,23 @@ export function NotificationProvider({ children }) {
     try {
       const { data } = await notifApi.list(params);
       setNotifications(Array.isArray(data) ? data : (data.results ?? []));
+      setNextUrl(Array.isArray(data) ? null : (data.next ?? null));
     } catch {
       // ignore
     }
   }, [isAuthed]);
+
+  const loadMoreNotifications = useCallback(async () => {
+    if (!nextUrl) return;
+    try {
+      const { default: api } = await import("../api/axios.js");
+      const { data } = await api.get(nextUrl.replace(/^.*\/api/, ""));
+      setNotifications((prev) => [...prev, ...(Array.isArray(data) ? data : (data.results ?? []))]);
+      setNextUrl(Array.isArray(data) ? null : (data.next ?? null));
+    } catch {
+      // ignore
+    }
+  }, [nextUrl]);
 
   const markRead = useCallback(async (id) => {
     try {
@@ -65,7 +79,7 @@ export function NotificationProvider({ children }) {
 
   return (
     <NotificationContext.Provider
-      value={{ unreadCount, notifications, loadNotifications, markRead, markAllRead, fetchUnreadCount }}
+      value={{ unreadCount, notifications, nextNotifUrl: nextUrl, loadNotifications, loadMoreNotifications, markRead, markAllRead, fetchUnreadCount }}
     >
       {children}
     </NotificationContext.Provider>

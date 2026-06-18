@@ -1,10 +1,21 @@
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown } from "lucide-react";
+import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+
+const AMENITY_FILTERS = [
+  { key: "has_wifi",        label: "WiFi",        icon: Wifi },
+  { key: "has_ac",          label: "AC",          icon: Snowflake },
+  { key: "has_electricity", label: "Electricity", icon: Zap },
+  { key: "has_water",       label: "Water",       icon: Droplets },
+  { key: "has_security",    label: "Security",    icon: Shield },
+  { key: "has_parking",     label: "Parking",     icon: Car },
+  { key: "has_laundry",     label: "Laundry",     icon: WashingMachine },
+  { key: "has_kitchen",     label: "Kitchen",     icon: Utensils },
+];
 
 const CATEGORY_TABS = [
   { value: "",        label: "All" },
@@ -22,6 +33,7 @@ export default function SearchPage() {
   const [activeCampus, setActiveCampus]     = useState(""); // specific university value
   const [minPrice, setMinPrice]             = useState("");
   const [maxPrice, setMaxPrice]             = useState("");
+  const [amenities, setAmenities]           = useState({});   // { has_wifi: true, ... }
   const [showFilters, setShowFilters]       = useState(false);
   const [hostels, setHostels]               = useState([]);
   const [loading, setLoading]               = useState(true);
@@ -66,15 +78,15 @@ export default function SearchPage() {
     load();
   }, []);
 
-  const triggerLoad = (campus, min, max) => {
+  const triggerLoad = (campus, min, max, ams = amenities) => {
     setNextUrl(null);
     setPrevUrl(null);
-    load({ campus, min_price: min, max_price: max });
+    load({ campus, min_price: min, max_price: max, ...ams });
   };
 
   const handleCategoryClick = (cat) => {
     setActiveCategory(cat);
-    setActiveCampus(""); // reset university selection when category changes
+    setActiveCampus("");
     triggerLoad("", minPrice, maxPrice);
   };
 
@@ -95,6 +107,18 @@ export default function SearchPage() {
     }, 600);
   };
 
+  const toggleAmenity = (key) => {
+    setAmenities((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = true;
+      triggerLoad(activeCampus, minPrice, maxPrice, next);
+      return next;
+    });
+  };
+
+  const activeAmenityCount = Object.keys(amenities).length;
+
   return (
     <div>
       {/* Hero */}
@@ -106,50 +130,86 @@ export default function SearchPage() {
           Verified hostels near KNUST, Legon, UCC and more — book a bed in minutes.
         </p>
 
-        {/* Price filter row inside hero */}
-        <div className="mt-6 flex items-center gap-2">
+        {/* Filter toggle row */}
+        <div className="mt-6 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setShowFilters((v) => !v)}
             className="flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/30 transition"
           >
             <SlidersHorizontal size={15} />
-            {showFilters ? "Hide filters" : "Price filter"}
+            {showFilters ? "Hide filters" : "Filters"}
+            {(minPrice || maxPrice || activeAmenityCount > 0) && (
+              <span className="ml-1 rounded-full bg-white/30 px-1.5 text-xs">
+                {(minPrice || maxPrice ? 1 : 0) + activeAmenityCount}
+              </span>
+            )}
           </button>
           {(minPrice || maxPrice) && (
-            <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs text-white">
-              {minPrice ? `GHS ${minPrice}` : "any"} – {maxPrice ? `GHS ${maxPrice}` : "any"}
+            <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs text-white flex items-center gap-1">
+              GHS {minPrice || "any"} – {maxPrice || "any"}
               <button
-                className="ml-1.5 inline-flex items-center opacity-75 hover:opacity-100"
                 onClick={() => { setMinPrice(""); setMaxPrice(""); clearTimeout(debounceRef.current); triggerLoad(activeCampus, "", ""); }}
               ><X size={11} /></button>
             </span>
           )}
+          {Object.keys(amenities).map((key) => {
+            const af = AMENITY_FILTERS.find((a) => a.key === key);
+            if (!af) return null;
+            const Icon = af.icon;
+            return (
+              <span key={key} className="rounded-full bg-white/20 px-2.5 py-1 text-xs text-white flex items-center gap-1">
+                <Icon size={11} /> {af.label}
+                <button onClick={() => toggleAmenity(key)}><X size={11} /></button>
+              </span>
+            );
+          })}
         </div>
 
         {showFilters && (
-          <div className="mt-3 flex items-end gap-2 flex-wrap">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-white/80">Min (GHS)</label>
-              <input
-                type="number"
-                min="0"
-                className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
-                placeholder="0"
-                value={minPrice}
-                onChange={(e) => handlePriceChange("min", e.target.value)}
-              />
+          <div className="mt-3 space-y-3">
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-white/80">Min (GHS)</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  placeholder="0"
+                  value={minPrice}
+                  onChange={(e) => handlePriceChange("min", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-white/80">Max (GHS)</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  placeholder="any"
+                  value={maxPrice}
+                  onChange={(e) => handlePriceChange("max", e.target.value)}
+                />
+              </div>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-white/80">Max (GHS)</label>
-              <input
-                type="number"
-                min="0"
-                className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
-                placeholder="any"
-                value={maxPrice}
-                onChange={(e) => handlePriceChange("max", e.target.value)}
-              />
+              <p className="mb-1.5 text-xs font-medium text-white/80">Amenities</p>
+              <div className="flex flex-wrap gap-2">
+                {AMENITY_FILTERS.map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleAmenity(key)}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition
+                      ${amenities[key]
+                        ? "bg-white text-brand shadow"
+                        : "bg-white/20 text-white hover:bg-white/30"}`}
+                  >
+                    <Icon size={12} />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}

@@ -1,17 +1,20 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, ChevronRight, ChevronLeft, Check, Upload, Trash2 } from "lucide-react";
+import {
+  X, ChevronRight, ChevronLeft, Check, Upload, Trash2,
+  Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils,
+  Landmark, GraduationCap, School,
+} from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// Campus is the same list as universities, plus "Other"
-const CAMPUS_GROUPS = [
-  { label: "Public Universities", options: PUBLIC_UNIVERSITIES },
-  { label: "Private Universities", options: PRIVATE_UNIVERSITIES },
-  { label: "Other", options: [{ value: "OTHER", label: "Other" }] },
+const CAMPUS_CATEGORIES = [
+  { value: "public",  icon: Landmark,       label: "Public",  options: PUBLIC_UNIVERSITIES },
+  { value: "private", icon: GraduationCap,  label: "Private", options: PRIVATE_UNIVERSITIES },
+  { value: "other",   icon: School,         label: "Other",   options: [{ value: "OTHER", label: "Other" }] },
 ];
 
 const GENDER_POLICIES = [
@@ -21,14 +24,14 @@ const GENDER_POLICIES = [
 ];
 
 const AMENITIES = [
-  { key: "has_wifi",        label: "WiFi",             icon: "📶" },
-  { key: "has_ac",          label: "Air Conditioning",  icon: "❄️" },
-  { key: "has_electricity", label: "Electricity",       icon: "⚡" },
-  { key: "has_water",       label: "Water Access",      icon: "💧" },
-  { key: "has_security",    label: "Security / Guard",  icon: "🔒" },
-  { key: "has_parking",     label: "Parking",           icon: "🚗" },
-  { key: "has_laundry",     label: "Laundry Facility",  icon: "🧺" },
-  { key: "has_kitchen",     label: "Shared Kitchen",    icon: "🍳" },
+  { key: "has_wifi",        label: "WiFi",             icon: Wifi },
+  { key: "has_ac",          label: "Air Conditioning",  icon: Snowflake },
+  { key: "has_electricity", label: "Electricity",       icon: Zap },
+  { key: "has_water",       label: "Water Access",      icon: Droplets },
+  { key: "has_security",    label: "Security / Guard",  icon: Shield },
+  { key: "has_parking",     label: "Parking",           icon: Car },
+  { key: "has_laundry",     label: "Laundry Facility",  icon: WashingMachine },
+  { key: "has_kitchen",     label: "Shared Kitchen",    icon: Utensils },
 ];
 
 const STEPS = ["Basic Info", "Amenities & Policy", "Photos"];
@@ -89,7 +92,7 @@ function StepBar({ current }) {
 
 // ── Amenity toggle pill ───────────────────────────────────────────────────────
 
-function AmenityToggle({ label, icon, checked, onChange }) {
+function AmenityToggle({ label, icon: Icon, checked, onChange }) {
   return (
     <button
       type="button"
@@ -100,7 +103,7 @@ function AmenityToggle({ label, icon, checked, onChange }) {
           ? "border-brand bg-brand/10 text-brand dark:bg-brand/20"
           : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}
     >
-      <span className="text-base leading-none">{icon}</span>
+      <Icon size={16} className="shrink-0" />
       <span className="flex-1">{label}</span>
       <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-all
         ${checked ? "bg-brand" : "border border-gray-300 dark:border-gray-600"}`}>
@@ -224,6 +227,7 @@ export default function NewHostelPage() {
   const [animKey, setAnimKey] = useState(0);
   const [slideDir, setSlideDir] = useState(1); // 1 = forward, -1 = back
   const [form, setForm]     = useState(EMPTY_FORM);
+  const [campusCat, setCampusCat] = useState("public");
   const [photos, setPhotos] = useState([]);
   const [errors, setErrors] = useState({});
   const [busy, setBusy]     = useState(false);
@@ -356,7 +360,7 @@ export default function NewHostelPage() {
 
           {/* Animated step content */}
           <div key={animKey} style={slideStyle}>
-            {step === 0 && <Step0 form={form} set={set} errors={errors} />}
+            {step === 0 && <Step0 form={form} set={set} errors={errors} campusCat={campusCat} setCampusCat={setCampusCat} />}
             {step === 1 && <Step1 form={form} set={set} />}
             {step === 2 && <Step2 photos={photos} setPhotos={setPhotos} />}
           </div>
@@ -415,7 +419,7 @@ export default function NewHostelPage() {
 
 // ── Step 0: Basic Info ────────────────────────────────────────────────────────
 
-function Step0({ form, set, errors }) {
+function Step0({ form, set, errors, campusCat, setCampusCat }) {
   return (
     <div className="space-y-5">
       <div>
@@ -439,17 +443,38 @@ function Step0({ form, set, errors }) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
+        <div className="space-y-2">
           <label className="label">Campus *</label>
-          <select className="input" value={form.campus} onChange={(e) => set("campus", e.target.value)}>
-            {CAMPUS_GROUPS.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.options.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </optgroup>
+          {/* Category radio cards */}
+          <div className="grid grid-cols-3 gap-2">
+            {CAMPUS_CATEGORIES.map(({ value, icon: Icon, label, options }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setCampusCat(value);
+                  set("campus", options[0].value);
+                }}
+                className={`flex items-center justify-center gap-1.5 rounded-lg border p-2 text-xs font-medium transition
+                  ${campusCat === value
+                    ? "border-brand bg-brand/5 text-brand"
+                    : "border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-600 dark:text-gray-300"}`}
+              >
+                <Icon size={13} className="shrink-0" />
+                {label}
+              </button>
             ))}
-          </select>
+          </div>
+          {/* Filtered dropdown — hidden when "Other" (only one choice) */}
+          {campusCat !== "other" ? (
+            <select className="input" value={form.campus} onChange={(e) => set("campus", e.target.value)}>
+              {CAMPUS_CATEGORIES.find((c) => c.value === campusCat)?.options.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-xs text-gray-500 px-1">Campus will be set to "Other".</p>
+          )}
         </div>
         <div>
           <label className="label">Location / Landmark *</label>

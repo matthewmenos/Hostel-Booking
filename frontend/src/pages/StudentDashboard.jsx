@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Download, Wrench } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2 } from "lucide-react";
 import { bookingApi, authApi, notifApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
@@ -7,9 +8,9 @@ import { SkeletonBookingRow } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 
-const UNI_GROUPS = [
-  { label: "Public Universities",  options: PUBLIC_UNIVERSITIES },
-  { label: "Private Universities", options: PRIVATE_UNIVERSITIES },
+const UNI_CATEGORIES = [
+  { value: "public",  icon: Landmark,      label: "Public",  options: PUBLIC_UNIVERSITIES },
+  { value: "private", icon: GraduationCap, label: "Private", options: PRIVATE_UNIVERSITIES },
 ];
 
 const TABS = [
@@ -18,9 +19,14 @@ const TABS = [
   { id: "profile",  label: "Profile" },
 ];
 
+const VALID_TABS = TABS.map((t) => t.id);
+
 export default function StudentDashboard() {
   const { user } = useAuth();
-  const [tab, setTab] = useState("bookings");
+  const navigate = useNavigate();
+  const { tab: tabParam } = useParams();
+  const tab = VALID_TABS.includes(tabParam) ? tabParam : "bookings";
+  const setTab = (t) => navigate(`/dashboard/${t}`, { replace: true });
 
   return (
     <div>
@@ -51,13 +57,31 @@ function BookingsTab() {
   const { addToast } = useToast();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [nextUrl, setNextUrl] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [cancelTarget, setCancelTarget] = useState(null);
 
   useEffect(() => {
     bookingApi.myBookings()
-      .then(({ data }) => setBookings(data.results ?? data))
+      .then(({ data }) => {
+        setBookings(data.results ?? data);
+        setNextUrl(data.next ?? null);
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  const loadMore = () => {
+    if (!nextUrl || loadingMore) return;
+    setLoadingMore(true);
+    import("../api/axios.js").then(({ default: api }) =>
+      api.get(nextUrl.replace(/^.*\/api/, ""))
+        .then(({ data }) => {
+          setBookings((prev) => [...prev, ...(data.results ?? data)]);
+          setNextUrl(data.next ?? null);
+        })
+        .finally(() => setLoadingMore(false))
+    );
+  };
 
   const confirmCancel = async (bookingId) => {
     try {
@@ -102,13 +126,12 @@ function BookingsTab() {
             {/* Paid booking — download receipt */}
             {isPaid && (
               <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
-                <a
-                  href={bookingApi.receiptUrl(b.id)}
-                  download
+                <button
+                  onClick={() => bookingApi.downloadReceipt(b.id)}
                   className="btn-ghost px-3 py-1.5 text-sm inline-flex items-center gap-1.5"
                 >
                   <Download size={14} /> Download Receipt
-                </a>
+                </button>
               </div>
             )}
 
@@ -145,6 +168,16 @@ function BookingsTab() {
           </div>
         );
       })}
+
+      {nextUrl && (
+        <button
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="btn-ghost w-full py-2 text-sm"
+        >
+          {loadingMore ? "Loading…" : "Load more"}
+        </button>
+      )}
     </div>
   );
 }
@@ -161,6 +194,13 @@ function ProfileTab() {
     university:  user?.university  ?? "",
   });
   const [busy, setBusy] = useState(false);
+  // Derive initial category from the saved university value
+  const initCat = () => {
+    const saved = user?.university ?? "";
+    if (!saved) return "public";
+    return PRIVATE_UNIVERSITIES.some((u) => u.value === saved) ? "private" : "public";
+  };
+  const [uniCat, setUniCat] = useState(initCat);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -200,17 +240,32 @@ function ProfileTab() {
           onChange={(e) => setForm({...form, phone: e.target.value})} />
       </div>
 
-      <div>
+      <div className="space-y-2">
         <label className="label">University</label>
+        <div className="grid grid-cols-2 gap-2">
+          {UNI_CATEGORIES.map((cat) => (
+            <button
+              key={cat.value}
+              type="button"
+              onClick={() => {
+                setUniCat(cat.value);
+                setForm((f) => ({ ...f, university: "" }));
+              }}
+              className={`flex items-center gap-1.5 rounded-lg border p-2.5 text-sm font-medium transition
+                ${uniCat === cat.value
+                  ? "border-brand bg-brand/5 text-brand"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300 dark:border-gray-600 dark:text-gray-300"}`}
+            >
+              <cat.icon size={14} className="shrink-0" />
+              {cat.label}
+            </button>
+          ))}
+        </div>
         <select className="input" value={form.university}
           onChange={(e) => setForm({...form, university: e.target.value})}>
-          <option value="">— Select your university —</option>
-          {UNI_GROUPS.map((group) => (
-            <optgroup key={group.label} label={group.label}>
-              {group.options.map((u) => (
-                <option key={u.value} value={u.value}>{u.label}</option>
-              ))}
-            </optgroup>
+          <option value="">— Select university —</option>
+          {UNI_CATEGORIES.find((c) => c.value === uniCat)?.options.map((u) => (
+            <option key={u.value} value={u.value}>{u.label}</option>
           ))}
         </select>
       </div>
@@ -276,7 +331,7 @@ function ReportTab() {
   if (done) return (
     <div className="card p-8 text-center space-y-3">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-        <span className="text-3xl">✅</span>
+        <CheckCircle2 size={36} className="text-green-600 dark:text-green-400" />
       </div>
       <h3 className="font-bold text-lg">Report Submitted</h3>
       <p className="text-gray-500 text-sm">

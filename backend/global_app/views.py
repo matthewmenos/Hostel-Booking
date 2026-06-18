@@ -60,12 +60,24 @@ User = get_user_model()
 class HostelFilter(FilterSet):
     """Discovery filters: campus, price range, and amenity presence."""
 
-    min_price = filters.NumberFilter(field_name="base_price", lookup_expr="gte")
-    max_price = filters.NumberFilter(field_name="base_price", lookup_expr="lte")
+    min_price      = filters.NumberFilter(field_name="base_price",    lookup_expr="gte")
+    max_price      = filters.NumberFilter(field_name="base_price",    lookup_expr="lte")
+    has_wifi       = filters.BooleanFilter(field_name="has_wifi")
+    has_ac         = filters.BooleanFilter(field_name="has_ac")
+    has_electricity= filters.BooleanFilter(field_name="has_electricity")
+    has_water      = filters.BooleanFilter(field_name="has_water")
+    has_security   = filters.BooleanFilter(field_name="has_security")
+    has_parking    = filters.BooleanFilter(field_name="has_parking")
+    has_laundry    = filters.BooleanFilter(field_name="has_laundry")
+    has_kitchen    = filters.BooleanFilter(field_name="has_kitchen")
+    gender_policy  = filters.CharFilter(field_name="gender_policy",   lookup_expr="exact")
 
     class Meta:
         model = TenantHostel
-        fields = ["campus", "min_price", "max_price"]
+        fields = ["campus", "min_price", "max_price",
+                  "has_wifi", "has_ac", "has_electricity", "has_water",
+                  "has_security", "has_parking", "has_laundry", "has_kitchen",
+                  "gender_policy"]
 
 
 class HostelViewSet(viewsets.ModelViewSet):
@@ -463,7 +475,7 @@ class AdminRefundBookingView(generics.GenericAPIView):
             notif_type=NotifType.BOOKING_CANCELLED,
             title="Booking Refunded",
             body=f"Your booking at {booking.hostel.name} has been refunded by the admin.",
-            link="/dashboard",
+            link="/dashboard/bookings",
         )
 
         return Response(GlobalBookingSerializer(booking).data)
@@ -604,7 +616,7 @@ class PaystackWebhookView(APIView):
             notif_type=NotifType.BOOKING_PAID,
             title="New Booking Payment Received",
             body=f"{booking.student.get_full_name() or booking.student.username} paid GHS {payment.amount} for a bed at {booking.hostel.name}.",
-            link="/manager",
+            link="/manager/bookings",
         )
 
         logger.info("Webhook: booking #%s moved to paid_awaiting_approval", booking.pk)
@@ -682,7 +694,7 @@ class AdminApproveBookingView(generics.GenericAPIView):
             notif_type=NotifType.BOOKING_APPROVED,
             title="Booking Approved!",
             body=f"Your booking at {booking.hostel.name} has been approved and your bed is confirmed.",
-            link="/dashboard",
+            link="/dashboard/bookings",
         )
 
         return Response({
@@ -1329,6 +1341,6 @@ class SendReportView(APIView):
             title=f"Maintenance Report: {title}",
             body=f"From {sender_name} ({booking.hostel.name}): {body}",
             sender=request.user,
-            link="/manager",
+            link="/manager/messages",
         )
         return Response({"detail": "Report submitted successfully."})

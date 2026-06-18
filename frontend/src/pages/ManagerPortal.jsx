@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2,
   Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
@@ -21,14 +21,18 @@ const TABS = [
   { id: "analytics",     label: "Analytics" },
 ];
 
+const VALID_TABS = TABS.map((t) => t.id);
+
 export default function ManagerPortal() {
   const navigate = useNavigate();
+  const { tab: tabParam } = useParams();
   const { user } = useAuth();
   const [hostels, setHostels] = useState([]);
   const [active, setActive] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("overview");
+  const tab = VALID_TABS.includes(tabParam) ? tabParam : "overview";
+  const setTab = (t) => navigate(`/manager/${t}`, { replace: true });
   const [verif, setVerif] = useState(null);
   const [verifLoading, setVerifLoading] = useState(true);
 
@@ -118,12 +122,12 @@ export default function ManagerPortal() {
 
               <div className="text-left space-y-2 text-sm text-gray-500">
                 <p className="font-medium text-gray-700 dark:text-gray-300">What you'll need:</p>
-                <ul className="space-y-1 pl-1">
-                  <li>🇬🇭 Your nationality</li>
-                  <li>🪪 Ghana Card (front &amp; back photo)</li>
-                  <li>🤳 A selfie / facial photo</li>
-                  <li>📍 Your business GPS location &amp; address</li>
-                  <li>💳 GHS 5 activation fee (via Paystack)</li>
+                <ul className="space-y-1 pl-1 list-disc list-inside">
+                  <li>Your nationality</li>
+                  <li>Ghana Card (front &amp; back photo)</li>
+                  <li>A selfie / facial photo</li>
+                  <li>Your business GPS location &amp; address</li>
+                  <li>GHS 5 activation fee (via Paystack)</li>
                 </ul>
               </div>
 
@@ -458,6 +462,16 @@ function BedManager({ slug, room, onRefresh }) {
     }
   };
 
+  const vacateBed = async (bedId) => {
+    try {
+      await tenantApi.vacateBed(slug, bedId);
+      await onRefresh();
+      addToast("success", "Bed marked as vacant.");
+    } catch {
+      addToast("error", "Could not vacate bed.");
+    }
+  };
+
   return (
     <div className="ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-2">
       {room.beds.map((bed) => (
@@ -470,11 +484,22 @@ function BedManager({ slug, room, onRefresh }) {
               {bed.is_occupied ? "Taken" : "Free"}
             </span>
           </span>
-          {!bed.is_occupied && (
-            <button onClick={() => deleteBed(bed.id)} className="text-gray-400 hover:text-red-500">
-              <Trash2 size={14} />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {bed.is_occupied && (
+              <button
+                onClick={() => vacateBed(bed.id)}
+                className="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 rounded px-2 py-0.5 hover:bg-amber-50"
+                title="Mark bed as vacant"
+              >
+                Vacate
+              </button>
+            )}
+            {!bed.is_occupied && (
+              <button onClick={() => deleteBed(bed.id)} className="text-gray-400 hover:text-red-500">
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
         </div>
       ))}
       {room.beds.length === 0 && <p className="text-xs text-gray-400">No beds yet.</p>}
@@ -970,7 +995,7 @@ function MessagesTab({ hostels, activeSlug }) {
           ) : (
             reports.map((r) => (
               <div key={r.id} className={`card px-4 py-3 flex items-start gap-3 ${!r.is_read ? "border-l-4 border-amber-400" : ""}`}>
-                <span className="text-xl">🔧</span>
+                <Wrench size={18} className="text-amber-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm ${!r.is_read ? "font-semibold" : ""}`}>{r.title}</p>
                   {r.body && <p className="text-sm text-gray-500 mt-0.5">{r.body}</p>}

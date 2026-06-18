@@ -68,6 +68,17 @@ class RoomViewSet(_TenantScopedViewSet):
 class BedSpaceViewSet(_TenantScopedViewSet):
     queryset = BedSpace.objects.all()
     serializer_class = BedSpaceSerializer
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def perform_update(self, serializer):
+        self._check_manager()
+        instance = serializer.instance
+        new_occupied = serializer.validated_data.get("is_occupied", instance.is_occupied)
+        if instance.is_occupied and not new_occupied:
+            serializer.save(is_occupied=False, occupant_ref=0, booking_ref=0)
+        else:
+            serializer.save()
+        self._mark_dirty()
 
 
 class AnnouncementViewSet(_TenantScopedViewSet):

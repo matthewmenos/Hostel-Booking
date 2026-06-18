@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Building2, LogOut, LayoutDashboard, Search, Menu, X, ShieldCheck, Bell } from "lucide-react";
+import {
+  Building2, LogOut, LayoutDashboard, Search, Menu, X, ShieldCheck, Bell,
+  Megaphone, MessageCircle, Wrench, CreditCard, CheckCircle, CircleX,
+  Medal, Circle, PartyPopper, TriangleAlert,
+} from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
@@ -56,19 +60,27 @@ function ThemeToggle({ className = "" }) {
   );
 }
 
-const TYPE_ICON = {
-  msg_broadcast: "📢",
-  msg_direct: "💬",
-  report: "🔧",
-  booking_paid: "💳",
-  booking_approved: "✅",
-  booking_cancelled: "❌",
-  hostel_verified: "🏅",
-  hostel_activated: "🟢",
-  hostel_deactivated: "🔴",
-  verif_approved: "🎉",
-  verif_rejected: "⚠️",
+const TYPE_ICON_MAP = {
+  msg_broadcast:    <Megaphone      size={18} className="text-brand" />,
+  msg_direct:       <MessageCircle  size={18} className="text-blue-500" />,
+  report:           <Wrench         size={18} className="text-amber-500" />,
+  booking_paid:     <CreditCard     size={18} className="text-purple-500" />,
+  booking_approved: <CheckCircle    size={18} className="text-green-500" />,
+  booking_cancelled:<CircleX        size={18} className="text-red-500" />,
+  hostel_verified:  <Medal          size={18} className="text-yellow-500" />,
+  hostel_activated: <Circle         size={18} className="fill-green-500 text-green-500" />,
+  hostel_deactivated:<Circle        size={18} className="fill-red-500 text-red-500" />,
+  verif_approved:   <PartyPopper    size={18} className="text-green-500" />,
+  verif_rejected:   <TriangleAlert  size={18} className="text-red-500" />,
 };
+
+function NotifIcon({ type }) {
+  return (
+    <span className="shrink-0 mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
+      {TYPE_ICON_MAP[type] ?? <Bell size={18} className="text-gray-400" />}
+    </span>
+  );
+}
 
 function timeAgo(dateStr) {
   const diff = (Date.now() - new Date(dateStr)) / 1000;
@@ -127,7 +139,7 @@ function NotificationDropdown({ onClose }) {
               onClick={() => handleClick(n)}
               className={`w-full text-left flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition ${!n.is_read ? "bg-brand/5 dark:bg-brand/10" : ""}`}
             >
-              <span className="text-xl leading-none mt-0.5 shrink-0">{TYPE_ICON[n.notif_type] ?? "🔔"}</span>
+              <NotifIcon type={n.notif_type} />
               <div className="flex-1 min-w-0">
                 <p className={`text-sm truncate ${!n.is_read ? "font-semibold" : ""}`}>{n.title}</p>
                 {n.body && <p className="text-xs text-gray-500 truncate mt-0.5">{n.body}</p>}

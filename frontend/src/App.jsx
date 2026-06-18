@@ -35,7 +35,23 @@ export default function App() {
             }
           />
           <Route
+            path="/dashboard/:tab"
+            element={
+              <ProtectedRoute role="student">
+                <StudentDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/manager"
+            element={
+              <ProtectedRoute role="manager">
+                <ManagerPortal />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager/:tab"
             element={
               <ProtectedRoute role="manager">
                 <ManagerPortal />

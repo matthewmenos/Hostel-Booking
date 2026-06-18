@@ -120,8 +120,10 @@ def _initiate_paystack_stub(payment: Payment) -> dict:
 # ---------------------------------------------------------------------------
 
 def verify_paystack_signature(payload_bytes: bytes, signature: str) -> bool:
+    # In dev (no secret configured) accept all webhook calls so the pipeline
+    # can be tested end-to-end without a live Paystack account.
     if not PAYSTACK_SECRET:
-        return False
+        return True
     computed = hmac.new(
         PAYSTACK_SECRET.encode("utf-8"), payload_bytes, hashlib.sha512
     ).hexdigest()

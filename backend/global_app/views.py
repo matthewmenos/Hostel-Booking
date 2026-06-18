@@ -192,6 +192,14 @@ class CreateBookingView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # Guard: student may not hold more than one active booking at a time.
+        active_statuses = (PaymentStatus.PENDING, PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID)
+        if GlobalBooking.objects.filter(student=request.user, payment_status__in=active_statuses).exists():
+            return Response(
+                {"detail": "You already have an active booking. Cancel or complete it before booking again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         hostel = self._get_hostel(data["hostel"])
         if hostel is None:
             return Response({"detail": "Hostel not found."}, status=404)
@@ -467,6 +475,30 @@ class AdminRefundBookingView(generics.GenericAPIView):
                 {"detail": "Only paid bookings can be marked refunded."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Free the bed in the tenant DB so it becomes available again.
+        if booking.bed_space_ref:
+            from tenants.models import BedSpace
+            alias = tenant_manager.ensure_tenant_db(booking.hostel.slug)
+            set_current_tenant(alias)
+            try:
+                with transaction.atomic(using=alias):
+                    bed = (
+                        BedSpace.objects.using(alias)
+                        .select_for_update()
+                        .filter(pk=booking.bed_space_ref)
+                        .first()
+                    )
+                    if bed:
+                        bed.is_occupied = False
+                        bed.occupant_ref = None
+                        bed.booking_ref = None
+                        bed.save(using=alias)
+                        tenant_manager.mark_dirty(booking.hostel.slug)
+            finally:
+                tenant_manager.sync_tenant_db(booking.hostel.slug)
+                clear_current_tenant()
+
         booking.payment_status = PaymentStatus.REFUNDED
         booking.save(update_fields=["payment_status"])
 

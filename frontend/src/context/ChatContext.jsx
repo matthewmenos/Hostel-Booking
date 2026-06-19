@@ -12,17 +12,19 @@ export function ChatProvider({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
-  const [replyTo, setReplyTo] = useState(null); // { id, author_username, body_preview }
+  const [replyTo, setReplyTo] = useState(null);
 
-  const countPollRef = useRef(null);
-  const msgPollRef   = useRef(null);
+  const countPollRef  = useRef(null);
+  const msgPollRef    = useRef(null);
+  // Tracks which room's messages are currently "expected" to prevent stale overwrites
+  const activeRoomRef = useRef(null);
 
   const fetchUnreadCount = useCallback(async () => {
     if (!isAuthed) return;
     try {
       const { data } = await chatApi.unreadCount();
       setUnreadCount(data.count);
-    } catch { /* silently ignore */ }
+    } catch { /* ignore */ }
   }, [isAuthed]);
 
   const loadRooms = useCallback(async () => {
@@ -41,7 +43,10 @@ export function ChatProvider({ children }) {
     try {
       const { data } = await chatApi.messages(roomId, { limit: 30 });
       const msgs = Array.isArray(data) ? data : (data.results ?? []);
-      setMessages([...msgs].reverse()); // API newest-first → display oldest-first (newest at bottom)
+      // Discard if user switched rooms while this request was in-flight
+      if (activeRoomRef.current === roomId) {
+        setMessages([...msgs].reverse());
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -52,16 +57,16 @@ export function ChatProvider({ children }) {
       setRooms((prev) =>
         prev.map((r) => r.id === roomId ? { ...r, unread_count: 0 } : r)
       );
-      fetchUnreadCount();
+      // Use functional update to avoid stale closure on fetchUnreadCount
+      chatApi.unreadCount().then(({ data }) => setUnreadCount(data.count)).catch(() => {});
     } catch { /* ignore */ }
-  }, [fetchUnreadCount]);
+  }, []);
 
   const sendMessage = useCallback(async (roomId, body, replyToId = null) => {
     await chatApi.postMessage(roomId, { body, reply_to: replyToId });
     setReplyTo(null);
     await loadMessages(roomId);
     await markRead(roomId);
-    // Refresh room list so last_message preview updates
     loadRooms();
   }, [loadMessages, markRead, loadRooms]);
 
@@ -74,19 +79,33 @@ export function ChatProvider({ children }) {
     } catch { /* ignore */ }
   }, []);
 
-  // 30s unread count poll
+  // 30s unread count + rooms poll — only depends on isAuthed (stable primitive)
   useEffect(() => {
-    if (!isAuthed) { setUnreadCount(0); setRooms([]); return; }
+    if (!isAuthed) {
+      setUnreadCount(0);
+      setRooms([]);
+      return;
+    }
     fetchUnreadCount();
     loadRooms();
-    countPollRef.current = setInterval(fetchUnreadCount, 30_000);
+    countPollRef.current = setInterval(() => {
+      fetchUnreadCount();
+    }, 30_000);
     return () => clearInterval(countPollRef.current);
-  }, [isAuthed, fetchUnreadCount, loadRooms]);
+  // fetchUnreadCount and loadRooms are stable within an isAuthed session;
+  // intentionally omitted from deps to avoid restarting the poll on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed]);
 
-  // 10s message poll when a room is open
+  // 10s message poll — only restarts when the active room actually changes
   useEffect(() => {
-    if (msgPollRef.current) clearInterval(msgPollRef.current);
-    if (!activeRoomId) { setMessages([]); return; }
+    clearInterval(msgPollRef.current);
+    activeRoomRef.current = activeRoomId;
+
+    if (!activeRoomId) {
+      setMessages([]);
+      return;
+    }
 
     setLoadingMessages(true);
     loadMessages(activeRoomId).finally(() => setLoadingMessages(false));
@@ -94,7 +113,9 @@ export function ChatProvider({ children }) {
 
     msgPollRef.current = setInterval(() => loadMessages(activeRoomId), 10_000);
     return () => clearInterval(msgPollRef.current);
-  }, [activeRoomId, loadMessages, markRead]);
+  // loadMessages and markRead have stable identities (no deps that change mid-session).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoomId]);
 
   return (
     <ChatContext.Provider value={{

@@ -75,7 +75,9 @@ export function NotificationProvider({ children }) {
     fetchUnreadCount();
     intervalRef.current = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(intervalRef.current);
-  }, [isAuthed, fetchUnreadCount]);
+  // fetchUnreadCount is stable within a session; omitted to prevent interval restart on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed]);
 
   return (
     <NotificationContext.Provider

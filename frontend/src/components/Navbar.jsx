@@ -3,11 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Building2, LogOut, LayoutDashboard, Search, Menu, X, ShieldCheck, Bell,
   Megaphone, MessageCircle, Wrench, CreditCard, CheckCircle, CircleX,
-  Medal, Circle, PartyPopper, TriangleAlert,
+  Medal, Circle, PartyPopper, TriangleAlert, MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { useNotifications } from "../context/NotificationContext.jsx";
+import { useChat } from "../context/ChatContext.jsx";
 
 function dashboardPath(role) {
   if (role === "superadmin") return "/admin";
@@ -189,6 +190,24 @@ function BellButton({ className = "" }) {
   );
 }
 
+function ChatButton({ className = "" }) {
+  const { unreadCount } = useChat();
+  return (
+    <Link
+      to="/chat"
+      aria-label="Group chats"
+      className={`relative rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-brand dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-brand-light ${className}`}
+    >
+      <MessageSquare size={18} />
+      {unreadCount > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+          {unreadCount > 9 ? "9+" : unreadCount}
+        </span>
+      )}
+    </Link>
+  );
+}
+
 export default function Navbar() {
   const { user, isAuthed, logout } = useAuth();
   const navigate = useNavigate();
@@ -237,12 +256,14 @@ export default function Navbar() {
           {authLinks}
           <ThemeToggle />
           {isAuthed && <BellButton />}
+          {isAuthed && user?.role === "student" && <ChatButton />}
         </div>
 
         {/* Mobile: theme toggle + bell + hamburger */}
         <div className="flex items-center gap-1 sm:hidden">
           <ThemeToggle />
           {isAuthed && <BellButton />}
+          {isAuthed && user?.role === "student" && <ChatButton />}
           <button className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
             onClick={() => setOpen((v) => !v)}>
             {open ? <X size={22}/> : <Menu size={22}/>}

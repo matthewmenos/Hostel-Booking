@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users } from "lucide-react";
-import { bookingApi, authApi, notifApi } from "../api/endpoints.js";
+import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone } from "lucide-react";
+import { bookingApi, authApi, notifApi, tenantApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { useChat } from "../context/ChatContext.jsx";
@@ -15,10 +15,11 @@ const UNI_CATEGORIES = [
 ];
 
 const TABS = [
-  { id: "bookings", label: "My Bookings" },
-  { id: "groups",   label: "My Groups" },
-  { id: "report",   label: "Report Issue" },
-  { id: "profile",  label: "Profile" },
+  { id: "bookings",      label: "My Bookings" },
+  { id: "groups",        label: "My Groups" },
+  { id: "announcements", label: "Announcements" },
+  { id: "report",        label: "Report Issue" },
+  { id: "profile",       label: "Profile" },
 ];
 
 const VALID_TABS = TABS.map((t) => t.id);
@@ -46,10 +47,11 @@ export default function StudentDashboard() {
         ))}
       </div>
 
-      {tab === "bookings" && <BookingsTab />}
-      {tab === "groups"   && <GroupsPreviewTab />}
-      {tab === "report"   && <ReportTab />}
-      {tab === "profile"  && <ProfileTab />}
+      {tab === "bookings"      && <BookingsTab />}
+      {tab === "groups"        && <GroupsPreviewTab />}
+      {tab === "announcements" && <AnnouncementsTab />}
+      {tab === "report"        && <ReportTab />}
+      {tab === "profile"       && <ProfileTab />}
     </div>
   );
 }
@@ -440,6 +442,85 @@ function GroupsPreviewTab() {
             className="btn-secondary text-xs shrink-0">
             Open Chat
           </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Announcements tab ─────────────────────────────────────────────────────────
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
+
+function AnnouncementsTab() {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [hostelName, setHostelName] = useState("");
+
+  useEffect(() => {
+    // Get the student's active (approved) booking to find the hostel slug
+    bookingApi.myBookings()
+      .then(({ data }) => {
+        const bookings = data.results ?? data;
+        const active = bookings.find((b) => b.payment_status === "approved");
+        if (!active?.hostel_slug) {
+          setLoading(false);
+          return;
+        }
+        setHostelName(active.hostel_name ?? "Your Hostel");
+        return tenantApi.announcements(active.hostel_slug)
+          .then(({ data: ann }) => {
+            setAnnouncements(Array.isArray(ann) ? ann : (ann.results ?? []));
+          });
+      })
+      .catch(() => setError("Could not load announcements."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <span className="h-7 w-7 animate-spin rounded-full border-4 border-brand border-t-transparent" />
+    </div>
+  );
+
+  if (error) return (
+    <div className="py-10 text-center text-sm text-red-500">{error}</div>
+  );
+
+  if (!announcements.length) return (
+    <div className="flex flex-col items-center gap-3 py-20 text-gray-400 text-center">
+      <Megaphone size={40} />
+      <p className="font-medium text-gray-600">No announcements yet</p>
+      <p className="text-sm max-w-xs">
+        {hostelName
+          ? `${hostelName} hasn't posted any announcements yet.`
+          : "You don't have an approved booking. Announcements appear here once your booking is approved."}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">Announcements from <span className="font-semibold text-gray-700 dark:text-gray-300">{hostelName}</span></p>
+      {announcements.map((ann) => (
+        <div key={ann.id} className="card p-5 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 shrink-0 rounded-full bg-brand/10 flex items-center justify-center">
+                <Megaphone size={15} className="text-brand" />
+              </div>
+              <p className="font-semibold text-sm">{ann.title}</p>
+            </div>
+            <span className="text-xs text-gray-400 shrink-0">{timeAgo(ann.created_at)}</span>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed pl-10">{ann.body}</p>
         </div>
       ))}
     </div>

@@ -70,13 +70,14 @@ class PaymentSerializer(serializers.ModelSerializer):
 class GlobalBookingSerializer(serializers.ModelSerializer):
     payments = PaymentSerializer(many=True, read_only=True)
     hostel_name = serializers.CharField(source="hostel.name", read_only=True)
+    hostel_slug = serializers.CharField(source="hostel.slug", read_only=True)
     student_username = serializers.CharField(source="student.username", read_only=True)
 
     class Meta:
         model = GlobalBooking
         fields = (
-            "id", "student", "student_username", "hostel", "hostel_name", "room_type",
-            "bed_space_ref", "amount", "payment_status",
+            "id", "student", "student_username", "hostel", "hostel_name", "hostel_slug",
+            "room_type", "bed_space_ref", "amount", "payment_status",
             "expiry_timestamp", "approved_at", "created_at", "payments",
         )
         read_only_fields = (

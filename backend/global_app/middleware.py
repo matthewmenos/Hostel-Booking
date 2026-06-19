@@ -7,16 +7,26 @@ filesystem restart on Render (or any similar host).
 
 GET / HEAD / OPTIONS never mutate the DB so they are skipped for performance.
 
-Upload failures are logged but never raise an exception to the caller — a
-failed backup must not break the user's request.
+The upload runs in a daemon thread so it never blocks the HTTP response.
+Upload failures are logged but never raise an exception to the caller.
 """
 import logging
+import threading
 
 from django.conf import settings
 
 logger = logging.getLogger("global_app.middleware")
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _upload_in_background(path: str) -> None:
+    """Upload the global DB to R2 in a daemon thread."""
+    try:
+        from core import r2_client
+        r2_client.upload_global_db(path)
+    except Exception as exc:
+        logger.error("GlobalDbSyncMiddleware: background upload failed: %s", exc)
 
 
 class GlobalDbSyncMiddleware:
@@ -32,15 +42,13 @@ class GlobalDbSyncMiddleware:
         if request.method in _SAFE_METHODS:
             return response
 
-        try:
-            from core import r2_client
-            r2_client.upload_global_db(str(settings.DATA_DIR / "global_system.db"))
-        except Exception as exc:
-            logger.error(
-                "GlobalDbSyncMiddleware: failed to sync global DB after %s %s: %s",
-                request.method,
-                request.path,
-                exc,
-            )
+        path = str(settings.DATA_DIR / "global_system.db")
+        t = threading.Thread(
+            target=_upload_in_background,
+            args=(path,),
+            daemon=True,
+            name="global-db-sync",
+        )
+        t.start()
 
         return response

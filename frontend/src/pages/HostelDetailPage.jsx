@@ -39,14 +39,14 @@ function GalleryCarousel({ hostel }) {
         <>
           <button
             onClick={prev}
-            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60 transition"
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white hover:bg-black/60 transition"
             aria-label="Previous image"
           >
             <ChevronLeft size={20} />
           </button>
           <button
             onClick={next}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60 transition"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white hover:bg-black/60 transition"
             aria-label="Next image"
           >
             <ChevronRight size={20} />
@@ -56,7 +56,8 @@ function GalleryCarousel({ hostel }) {
               <button
                 key={i}
                 onClick={() => setIdx(i)}
-                className={`h-1.5 rounded-full transition-all ${i === idx ? "w-5 bg-white" : "w-1.5 bg-white/50"}`}
+                aria-label={`Image ${i + 1}`}
+                className={`h-3 rounded-full transition-all ${i === idx ? "w-6 bg-white" : "w-3 bg-white/50"}`}
               />
             ))}
           </div>
@@ -280,7 +281,7 @@ export default function HostelDetailPage() {
                   {bed.is_occupied ? (
                     <span className="text-xs text-gray-400">Taken</span>
                   ) : (
-                    <button onClick={() => book(bed.id)} className="btn-primary px-3 py-1 text-xs">
+                    <button onClick={() => book(bed.id)} className="btn-primary px-4 py-2 text-xs min-h-[36px]">
                       Book
                     </button>
                   )}

@@ -53,6 +53,9 @@ _render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 if _render_host:
     ALLOWED_HOSTS.append(_render_host)
 
+# Frontend origin used in password-reset emails. Set to the deployed URL in production.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 # Local directory holding the runtime SQLite files and (in fallback mode) media.
 DATA_DIR = BASE_DIR / "data"
 DB_STORE_DIR = DATA_DIR / "db_store"

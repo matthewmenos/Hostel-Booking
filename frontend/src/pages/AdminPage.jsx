@@ -46,9 +46,9 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <ShieldCheck className="text-brand" size={28} />
-        <h1 className="text-2xl font-bold">Superadmin Dashboard</h1>
+      <div className="flex items-center gap-3 flex-wrap">
+        <ShieldCheck className="text-brand shrink-0" size={28} />
+        <h1 className="text-xl sm:text-2xl font-bold">Superadmin Dashboard</h1>
       </div>
 
       {/* Tab bar — scrollable on mobile */}
@@ -171,7 +171,7 @@ function VerificationsTab() {
             {isOpen && (
               <div className="border-t border-gray-100 dark:border-gray-700 p-4 space-y-4">
                 {/* Images */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
                     { url: v.id_front, label: "ID Front" },
                     { url: v.id_back,  label: "ID Back" },
@@ -180,15 +180,15 @@ function VerificationsTab() {
                     <a key={label} href={url} target="_blank" rel="noopener noreferrer"
                       className="group relative block">
                       <img src={url} alt={label}
-                        className="h-28 w-full rounded-lg object-cover ring-1 ring-gray-200
+                        className="h-24 sm:h-28 w-full rounded-lg object-cover ring-1 ring-gray-200
                           group-hover:ring-brand transition-all dark:ring-gray-700" />
                       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5
-                        text-[10px] font-medium text-white flex items-center gap-1">
-                        <ExternalLink size={9}/> {label}
+                        text-xs font-medium text-white flex items-center gap-1">
+                        <ExternalLink size={10}/> {label}
                       </span>
                     </a>
                   ) : (
-                    <div key={label} className="flex h-28 items-center justify-center
+                    <div key={label} className="flex h-24 sm:h-28 items-center justify-center
                       rounded-lg bg-gray-100 text-xs text-gray-400 dark:bg-gray-800">
                       No image
                     </div>
@@ -394,9 +394,9 @@ function PaystackTab() {
         {loadingBal ? (
           <SkeletonStatCard />
         ) : balanceList ? (
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-wrap gap-3">
             {balanceList.map((b, i) => (
-              <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 min-w-[160px]">
+              <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex-1 min-w-[140px]">
                 <p className="text-xs text-gray-400 uppercase tracking-wide">{b.currency}</p>
                 <p className="mt-1 text-2xl font-bold text-green-600">
                   {b.currency} {((b.balance ?? 0) / 100).toFixed(2)}
@@ -507,12 +507,12 @@ function PayoutsTab() {
         const current = editing[mgr.id] ?? mgr.paystack_recipient_code ?? "";
         const isDirty = mgr.id in editing;
         return (
-          <div key={mgr.id} className="card p-4 flex flex-wrap items-center justify-between gap-3">
+          <div key={mgr.id} className="card p-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">{mgr.username}</p>
               <p className="text-sm text-gray-500">{mgr.email}</p>
             </div>
-            <div className="flex items-center gap-2 flex-1 min-w-[260px] max-w-md">
+            <div className="flex items-center gap-2 flex-1 min-w-0 sm:min-w-[220px] sm:max-w-md">
               <input
                 type="text"
                 placeholder="RCP_xxxxxxxxxxxx"
@@ -660,30 +660,30 @@ function UsersTab() {
   return (
     <div className="space-y-2">
       {users.map((u) => (
-        <div key={u.id} className={`card p-4 flex flex-wrap items-center justify-between gap-3
+        <div key={u.id} className={`card p-4 flex flex-wrap items-start justify-between gap-3
           ${!u.is_active ? "opacity-60" : ""}`}>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <p className={`font-semibold ${!u.is_active ? "line-through text-gray-400" : ""}`}>{u.username}</p>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_STYLES[u.role] ?? "bg-gray-100 text-gray-700"}`}>
                 {u.role}
               </span>
               {!u.is_active && <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-500">Inactive</span>}
             </div>
-            <p className="text-sm text-gray-500">{u.email} {u.university ? `· ${u.university}` : ""}</p>
+            <p className="text-sm text-gray-500 break-words">{u.email} {u.university ? `· ${u.university}` : ""}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {u.role !== "superadmin" && (
               <button
                 onClick={() => updateUser(u.id, { role: u.role === "manager" ? "student" : "manager" })}
-                className="btn-ghost px-2.5 py-1 text-xs">
+                className="btn-ghost px-3 py-1.5 text-xs min-h-[32px]">
                 → {u.role === "manager" ? "Student" : "Manager"}
               </button>
             )}
             <button
               onClick={() => updateUser(u.id, { is_active: !u.is_active })}
-              className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition min-h-[32px]
                 ${u.is_active
                   ? "border-red-200 text-red-600 hover:bg-red-50"
                   : "border-green-200 text-green-600 hover:bg-green-50"}`}>
@@ -734,9 +734,9 @@ function HostelsTab() {
   return (
     <div className="space-y-2">
       {hostels.map((h) => (
-        <div key={h.slug} className={`card p-4 flex flex-wrap items-center justify-between gap-3
+        <div key={h.slug} className={`card p-4 flex flex-wrap items-start justify-between gap-3
           ${!h.is_active ? "opacity-60" : ""}`}>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="font-semibold">{h.name}</p>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium
@@ -819,9 +819,9 @@ function BookingsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="label mb-0">Filter by status:</label>
-        <select className="input max-w-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <label className="label mb-0 sm:whitespace-nowrap shrink-0">Filter by status:</label>
+        <select className="input w-full sm:max-w-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">All</option>
           {Object.entries(STATUS_UI).map(([k, v]) => (
             <option key={k} value={k}>{v.label}</option>
@@ -837,13 +837,13 @@ function BookingsTab() {
           const ui = STATUS_UI[b.payment_status] ?? STATUS_UI.pending;
           const Icon = ui.icon;
           return (
-            <div key={b.id} className="card p-4 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">
-                  {b.student_username ?? `Student #${b.student}`}
-                  <span className="ml-2 text-sm font-normal text-gray-500">→ {b.hostel_name}</span>
+            <div key={b.id} className="card p-4 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold flex flex-wrap gap-1 items-baseline">
+                  <span className="truncate">{b.student_username ?? `Student #${b.student}`}</span>
+                  <span className="text-sm font-normal text-gray-500">→ {b.hostel_name}</span>
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 break-words">
                   {b.room_type} · GHS {b.amount} · #{b.id}
                 </p>
                 <p className="text-xs text-gray-400">

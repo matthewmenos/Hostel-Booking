@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone } from "lucide-react";
 import { bookingApi, authApi, notifApi, tenantApi } from "../api/endpoints.js";
@@ -8,6 +8,34 @@ import { useChat } from "../context/ChatContext.jsx";
 import { SkeletonBookingRow } from "../components/Skeleton.jsx";
 import { STATUS_UI } from "../utils/bookingStatus.js";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+
+function useCountdown(isoTimestamp) {
+  const [remaining, setRemaining] = useState(() => {
+    const ms = new Date(isoTimestamp) - Date.now();
+    return ms > 0 ? ms : 0;
+  });
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!isoTimestamp) return;
+    const tick = () => {
+      const ms = new Date(isoTimestamp) - Date.now();
+      setRemaining(ms > 0 ? ms : 0);
+      if (ms <= 0) clearInterval(ref.current);
+    };
+    tick();
+    ref.current = setInterval(tick, 1000);
+    return () => clearInterval(ref.current);
+  }, [isoTimestamp]);
+
+  if (!isoTimestamp || remaining <= 0) return null;
+  const totalSec = Math.floor(remaining / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return h > 0
+    ? `${h}h ${m}m ${s}s`
+    : `${m}m ${s}s`;
+}
 
 const UNI_CATEGORIES = [
   { value: "public",  icon: Landmark,      label: "Public",  options: PUBLIC_UNIVERSITIES },
@@ -37,10 +65,10 @@ export default function StudentDashboard() {
       <p className="mb-5 text-gray-500">Manage your bookings and account details.</p>
 
       {/* Tab bar */}
-      <div className="mb-5 flex gap-1 border-b border-gray-200">
+      <div className="mb-5 flex gap-0 border-b border-gray-200 overflow-x-auto scrollbar-none">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors
+            className={`shrink-0 px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
               ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700"}`}>
             {t.label}
           </button>
@@ -52,6 +80,89 @@ export default function StudentDashboard() {
       {tab === "announcements" && <AnnouncementsTab />}
       {tab === "report"        && <ReportTab />}
       {tab === "profile"       && <ProfileTab />}
+    </div>
+  );
+}
+
+// ── Booking card ─────────────────────────────────────────────────────────────
+
+function BookingCard({ booking: b, cancelTarget, setCancelTarget, confirmCancel }) {
+  const ui = STATUS_UI[b.payment_status] ?? STATUS_UI.pending;
+  const Icon = ui.icon;
+  const payUrl = b.payments?.[0]?.authorization_url;
+  const payRef = b.payments?.[0]?.reference;
+  const isPending = b.payment_status === "pending";
+  const isPaid = b.payment_status === "paid" || b.payment_status === "paid_awaiting_approval";
+  const countdown = useCountdown(isPending ? b.expiry_timestamp : null);
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold">{b.hostel_name}</p>
+          <p className="text-sm text-gray-500 break-words">
+            {b.room_type} · GHS {b.amount} · Booking #{b.id}
+          </p>
+          {payRef && <p className="text-xs text-gray-400 break-all">Ref: {payRef}</p>}
+        </div>
+        <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>
+          <Icon size={16} /> {ui.label}
+        </span>
+      </div>
+
+      {/* Expiry countdown for pending bookings */}
+      {isPending && (
+        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm
+          ${countdown ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300"
+                      : "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"}`}>
+          <Wrench size={14} className="shrink-0" />
+          {countdown
+            ? <span>Bed held for <strong>{countdown}</strong> — complete payment before it expires.</span>
+            : <span>This booking has expired. Your bed has been released.</span>}
+        </div>
+      )}
+
+      {/* Paid booking — download receipt */}
+      {isPaid && (
+        <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+          <button
+            onClick={() => bookingApi.downloadReceipt(b.id)}
+            className="btn-ghost px-3 py-1.5 text-sm inline-flex items-center gap-1.5"
+          >
+            <Download size={14} /> Download Receipt
+          </button>
+        </div>
+      )}
+
+      {/* Pending-booking actions */}
+      {isPending && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+          {payUrl && (
+            <a href={payUrl} target="_blank" rel="noopener noreferrer"
+              className="btn-primary px-3 py-1.5 text-sm">
+              <ExternalLink size={14} /> Complete Payment
+            </a>
+          )}
+          {cancelTarget === b.id ? (
+            <span className="flex items-center gap-2 text-sm">
+              <span className="text-gray-600">Cancel this booking?</span>
+              <button onClick={() => confirmCancel(b.id)}
+                className="rounded-lg border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+                Yes, cancel
+              </button>
+              <button onClick={() => setCancelTarget(null)}
+                className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                Keep
+              </button>
+            </span>
+          ) : (
+            <button onClick={() => setCancelTarget(b.id)}
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
+              Cancel booking
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -105,74 +216,15 @@ function BookingsTab() {
 
   return (
     <div className="space-y-3">
-      {bookings.map((b) => {
-        const ui = STATUS_UI[b.payment_status] ?? STATUS_UI.pending;
-        const Icon = ui.icon;
-        const payUrl = b.payments?.[0]?.authorization_url;
-        const ref = b.payments?.[0]?.reference;
-        const isPending = b.payment_status === "pending";
-        const isPaid = b.payment_status === "paid" || b.payment_status === "paid_awaiting_approval";
-
-        return (
-          <div key={b.id} className="card p-4 space-y-3">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-semibold">{b.hostel_name}</p>
-                <p className="text-sm text-gray-500">
-                  {b.room_type} · GHS {b.amount} · Booking #{b.id}
-                </p>
-                {ref && <p className="text-xs text-gray-400">Ref: {ref}</p>}
-              </div>
-              <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>
-                <Icon size={16}/> {ui.label}
-              </span>
-            </div>
-
-            {/* Paid booking — download receipt */}
-            {isPaid && (
-              <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
-                <button
-                  onClick={() => bookingApi.downloadReceipt(b.id)}
-                  className="btn-ghost px-3 py-1.5 text-sm inline-flex items-center gap-1.5"
-                >
-                  <Download size={14} /> Download Receipt
-                </button>
-              </div>
-            )}
-
-            {/* Pending-booking actions */}
-            {isPending && (
-              <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
-                {payUrl && (
-                  <a href={payUrl} target="_blank" rel="noopener noreferrer"
-                    className="btn-primary px-3 py-1.5 text-sm">
-                    <ExternalLink size={14}/> Complete Payment
-                  </a>
-                )}
-
-                {cancelTarget === b.id ? (
-                  <span className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-600">Cancel this booking?</span>
-                    <button onClick={() => confirmCancel(b.id)}
-                      className="rounded-lg border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
-                      Yes, cancel
-                    </button>
-                    <button onClick={() => setCancelTarget(null)}
-                      className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
-                      Keep
-                    </button>
-                  </span>
-                ) : (
-                  <button onClick={() => setCancelTarget(b.id)}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
-                    Cancel booking
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {bookings.map((b) => (
+        <BookingCard
+          key={b.id}
+          booking={b}
+          cancelTarget={cancelTarget}
+          setCancelTarget={setCancelTarget}
+          confirmCancel={confirmCancel}
+        />
+      ))}
 
       {nextUrl && (
         <button
@@ -222,7 +274,7 @@ function ProfileTab() {
   };
 
   return (
-    <form onSubmit={submit} className="card max-w-lg space-y-4 p-6">
+    <form onSubmit={submit} className="card w-full max-w-lg space-y-4 p-4 sm:p-6">
       <h2 className="font-semibold text-lg">Personal details</h2>
       <p className="text-sm text-gray-500 -mt-2">Username and email cannot be changed here.</p>
 
@@ -348,7 +400,7 @@ function ReportTab() {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="card p-6 space-y-4 max-w-lg">
+    <form onSubmit={handleSubmit} className="card w-full p-4 sm:p-6 space-y-4 max-w-lg">
       <div className="flex items-center gap-2 mb-1">
         <Wrench size={18} className="text-brand" />
         <h3 className="font-semibold">Report a Maintenance Issue</h3>
@@ -371,7 +423,7 @@ function ReportTab() {
       <div>
         <label className="label">Description (optional)</label>
         <textarea
-          className="input min-h-[100px]"
+          className="input min-h-[80px] sm:min-h-[100px]"
           placeholder="Describe the problem in more detail..."
           value={body}
           onChange={(e) => setBody(e.target.value)}

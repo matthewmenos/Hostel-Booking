@@ -16,6 +16,8 @@ import NotFoundPage from "./pages/NotFoundPage.jsx";
 import { NotificationProvider } from "./context/NotificationContext.jsx";
 import { ChatProvider } from "./context/ChatContext.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
+import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
 
 export default function App() {
   return (
@@ -29,6 +31,8 @@ export default function App() {
           <Route path="/hostels/:slug" element={<HostelDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password/:uid/:token" element={<ResetPasswordPage />} />
           <Route
             path="/dashboard"
             element={

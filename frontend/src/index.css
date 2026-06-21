@@ -48,4 +48,11 @@
   .animate-fadeInUp {
     animation: fadeInUp 0.35s ease both;
   }
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

@@ -19,6 +19,7 @@ const TABS = [
   { id: "bookings",      label: "Bookings" },
   { id: "messages",      label: "Messages" },
   { id: "analytics",     label: "Analytics" },
+  { id: "payouts",       label: "Payouts" },
 ];
 
 const VALID_TABS = TABS.map((t) => t.id);
@@ -160,23 +161,23 @@ export default function ManagerPortal() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">Manager Portal</h1>
-        <div className="flex items-center gap-2">
-          <select className="input max-w-xs" value={active ?? ""} onChange={(e) => setActive(e.target.value)}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select className="input flex-1 min-w-0 sm:max-w-xs" value={active ?? ""} onChange={(e) => setActive(e.target.value)}>
             {hostels.map((h) => <option key={h.slug} value={h.slug}>{h.name}</option>)}
           </select>
-          <button onClick={() => navigate("/manager/new-hostel")} className="btn-primary whitespace-nowrap">
+          <button onClick={() => navigate("/manager/new-hostel")} className="btn-primary shrink-0 whitespace-nowrap">
             <Plus size={16} /> New Hostel
           </button>
         </div>
       </div>
 
       {/* Tab bar — scrollable on mobile */}
-      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto dark:border-gray-700">
+      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto scrollbar-none dark:border-gray-700">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`shrink-0 px-4 py-2 text-sm font-medium transition-colors
+            className={`shrink-0 px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
               ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
             {t.label}
           </button>
@@ -199,6 +200,7 @@ export default function ManagerPortal() {
       {tab === "bookings"      && <BookingsTab slug={active} hostels={hostels} />}
       {tab === "messages"      && <MessagesTab hostels={hostels} activeSlug={active} />}
       {tab === "analytics"     && <AnalyticsTab />}
+      {tab === "payouts"       && <PayoutsTab />}
     </div>
   );
 }
@@ -462,7 +464,7 @@ function BedManager({ slug, room, cap, onRefresh }) {
   };
 
   return (
-    <div className="ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
+    <div className="ml-2 sm:ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
       <p className="text-xs text-gray-400 mb-2">
         {room.beds.length}/{cap} beds present · {room.beds.filter(b => b.is_occupied).length} occupied
       </p>
@@ -694,9 +696,9 @@ function BookingsTab({ slug: initialSlug, hostels }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="label mb-0 whitespace-nowrap">Filter hostel:</label>
-        <select className="input max-w-xs" value={slug ?? ""} onChange={(e) => setSlug(e.target.value)}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <label className="label mb-0 sm:whitespace-nowrap shrink-0">Filter hostel:</label>
+        <select className="input w-full sm:max-w-xs" value={slug ?? ""} onChange={(e) => setSlug(e.target.value)}>
           <option value="">All hostels</option>
           {hostels.map((h) => <option key={h.slug} value={h.slug}>{h.name}</option>)}
         </select>
@@ -710,10 +712,10 @@ function BookingsTab({ slug: initialSlug, hostels }) {
           const ui = STATUS_UI[b.payment_status] ?? STATUS_UI.pending;
           const Icon = ui.icon;
           return (
-            <div key={b.id} className="card p-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">{b.student_username ?? `Student #${b.student}`}</p>
-                <p className="text-sm text-gray-500">
+            <div key={b.id} className="card p-4 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold truncate">{b.student_username ?? `Student #${b.student}`}</p>
+                <p className="text-sm text-gray-500 break-words">
                   {b.hostel_name} · {b.room_type} · GHS {b.amount} · #{b.id}
                 </p>
                 <p className="text-xs text-gray-400">
@@ -793,17 +795,137 @@ function AnalyticsTab() {
                 <p className="font-medium">{h.name}</p>
                 <p className="text-xs text-gray-500">{h.paid_bookings} paid bookings · GHS {h.revenue.toFixed(2)}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="h-2 w-16 sm:w-24 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
                   <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(h.occupancy_pct, 100)}%` }} />
                 </div>
-                <span className="text-sm font-medium text-brand">{h.occupancy_pct}%</span>
+                <span className="text-sm font-medium text-brand whitespace-nowrap">{h.occupancy_pct}%</span>
               </div>
             </div>
           ))}
           {data.hostels.length === 0 && <p className="text-sm text-gray-400">No hostel data yet.</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Payouts tab ───────────────────────────────────────────────────────────────
+
+function PayoutsTab() {
+  const [rows, setRows]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    bookingApi.managerBookings()
+      .then(({ data }) => {
+        const list = data.results ?? data;
+        const payoutRows = [];
+        list.forEach((b) => {
+          if (!b.payments || b.payments.length === 0) return;
+          b.payments.forEach((p) => {
+            if (!p.transfer_code && !p.manager_payout) return;
+            payoutRows.push({
+              id:           p.id,
+              booking_id:   b.id,
+              student:      b.student_username ?? `User #${b.student}`,
+              hostel:       b.hostel_name ?? b.hostel,
+              amount:       p.manager_payout ?? 0,
+              commission:   p.platform_commission ?? 0,
+              transfer_code: p.transfer_code ?? null,
+              reference:    p.transfer_reference ?? null,
+              date:         p.created_at,
+            });
+          });
+        });
+        payoutRows.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setRows(payoutRows);
+      })
+      .catch(() => setError("Could not load payout history."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totalPaid = rows.filter((r) => r.transfer_code).reduce((s, r) => s + Number(r.amount), 0);
+  const totalPending = rows.filter((r) => !r.transfer_code).reduce((s, r) => s + Number(r.amount), 0);
+
+  if (loading) return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">{[1,2].map(i => <SkeletonStatCard key={i} />)}</div>
+      <div className="card p-5 space-y-3">{[1,2,3].map(i => <div key={i} className="h-14 rounded-lg bg-gray-100 dark:bg-gray-800 animate-pulse" />)}</div>
+    </div>
+  );
+
+  if (error) return <p className="text-red-500 text-sm">{error}</p>;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="card p-5 flex items-center gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+            <TrendingUp size={18} className="text-green-600 dark:text-green-400" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Paid out</p>
+            <p className="text-xl font-bold text-green-600">GHS {totalPaid.toLocaleString("en-GH", { minimumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+        <div className="card p-5 flex items-center gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+            <Clock size={18} className="text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Pending payout</p>
+            <p className="text-xl font-bold text-amber-600">GHS {totalPending.toLocaleString("en-GH", { minimumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Payout table */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+          <BarChart2 size={17} className="text-brand" />
+          <h2 className="font-semibold">Payout History</h2>
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="px-5 py-12 text-center text-gray-400">
+            <Percent size={32} className="mx-auto mb-2 opacity-40" />
+            <p className="text-sm">No payouts yet. Payouts appear here once bookings are paid and processed.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            {rows.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{r.student}</p>
+                  <p className="text-xs text-gray-500 truncate">{r.hostel} · Booking #{r.booking_id}</p>
+                  {r.reference && (
+                    <p className="text-xs text-gray-400 font-mono mt-0.5 truncate" title={r.reference}>
+                      Ref: {r.reference}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col items-end shrink-0 gap-1">
+                  <span className="text-sm font-semibold">GHS {Number(r.amount).toLocaleString("en-GH", { minimumFractionDigits: 2 })}</span>
+                  <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium
+                    ${r.transfer_code
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}>
+                    {r.transfer_code ? "Paid" : "Pending"}
+                  </span>
+                  <span className="text-xs text-gray-400">{new Date(r.date).toLocaleDateString("en-GH")}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400 text-center">
+        Platform commission is deducted before payout. Contact support if a payout is overdue.
+      </p>
     </div>
   );
 }
@@ -892,7 +1014,7 @@ function MessagesTab({ hostels, activeSlug }) {
       </div>
 
       {subTab === "send" && (
-        <form onSubmit={handleSend} className="card p-6 space-y-4 max-w-xl">
+        <form onSubmit={handleSend} className="card p-4 sm:p-6 space-y-4 w-full max-w-xl">
           {/* Hostel picker */}
           <div>
             <label className="label">Hostel</label>
@@ -904,9 +1026,9 @@ function MessagesTab({ hostels, activeSlug }) {
           {/* Message type */}
           <div>
             <label className="label">Send to</label>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               {[{ v: "broadcast", label: "All tenants" }, { v: "direct", label: "Specific student" }].map(({ v, label }) => (
-                <label key={v} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition
+                <label key={v} className={`flex flex-1 min-w-[130px] items-center gap-2 px-4 py-2.5 rounded-lg border cursor-pointer transition
                   ${msgType === v ? "border-brand bg-brand/5 text-brand" : "border-gray-200 dark:border-gray-700"}`}>
                   <input type="radio" className="hidden" value={v} checked={msgType === v} onChange={() => setMsgType(v)} />
                   {label}

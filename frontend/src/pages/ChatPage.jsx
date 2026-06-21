@@ -34,10 +34,10 @@ function EmojiPicker({ onPick, onClose }) {
 
   return (
     <div ref={ref}
-      className="absolute bottom-7 left-0 z-50 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg p-2 grid grid-cols-4 gap-1">
+      className="absolute bottom-8 left-0 z-50 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg p-2 grid grid-cols-4 gap-1 w-max">
       {QUICK_EMOJIS.map((emoji) => (
         <button key={emoji} onClick={() => { onPick(emoji); onClose(); }}
-          className="text-xl p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+          className="text-xl p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition min-w-[40px] min-h-[40px]">
           {emoji}
         </button>
       ))}
@@ -75,7 +75,7 @@ function MessageItem({ msg, onReply, onReact }) {
         <div className="flex flex-wrap items-center gap-1 mt-1.5 relative">
           {(msg.reactions_summary ?? []).map((r) => (
             <button key={r.emoji} onClick={() => onReact(msg.id, r.emoji)}
-              className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border transition
+              className={`flex items-center gap-0.5 px-2 py-1 rounded-full text-xs border transition min-h-[28px]
                 ${r.reacted
                   ? "border-brand bg-brand/10 text-brand font-semibold"
                   : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-gray-400"}`}>
@@ -85,8 +85,8 @@ function MessageItem({ msg, onReply, onReact }) {
           <div className="relative">
             <button
               onClick={() => setShowPicker((v) => !v)}
-              className="flex items-center px-1.5 py-0.5 rounded-full text-xs border border-gray-200 dark:border-gray-700 text-gray-400 hover:border-gray-400 transition">
-              <SmilePlus size={12} />
+              className="flex items-center px-2 py-1 rounded-full text-xs border border-gray-200 dark:border-gray-700 text-gray-400 hover:border-gray-400 transition min-h-[28px]">
+              <SmilePlus size={13} />
             </button>
             {showPicker && (
               <EmojiPicker
@@ -284,7 +284,7 @@ export default function ChatPage() {
     <div className="flex h-[calc(100vh-64px)] -my-6 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
 
       {/* Sidebar — hidden on mobile when chat is open */}
-      <aside className={`w-72 shrink-0 border-r border-gray-200 dark:border-gray-700 flex flex-col
+      <aside className={`w-full sm:w-64 md:w-72 shrink-0 border-r border-gray-200 dark:border-gray-700 flex flex-col
         ${mobileView === "chat" ? "hidden sm:flex" : "flex"}`}>
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h2 className="font-semibold text-sm flex items-center gap-2">

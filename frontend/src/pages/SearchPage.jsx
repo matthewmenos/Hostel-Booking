@@ -122,11 +122,11 @@ export default function SearchPage() {
   return (
     <div>
       {/* Hero */}
-      <section className="mb-6 rounded-2xl bg-gradient-to-r from-brand to-brand-light px-6 py-14 text-white shadow-lg">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+      <section className="mb-6 rounded-2xl bg-gradient-to-r from-brand to-brand-light px-4 py-10 sm:px-6 sm:py-14 text-white shadow-lg">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl lg:text-4xl">
           Find your hostel in Ghana
         </h1>
-        <p className="mt-2 max-w-xl text-white/85 sm:text-lg">
+        <p className="mt-2 max-w-xl text-white/85 text-sm sm:text-base lg:text-lg">
           Verified hostels near KNUST, Legon, UCC and more — book a bed in minutes.
         </p>
 
@@ -169,23 +169,23 @@ export default function SearchPage() {
         {showFilters && (
           <div className="mt-3 space-y-3">
             <div className="flex items-end gap-2 flex-wrap">
-              <div>
+              <div className="flex-1 min-w-[100px]">
                 <label className="mb-1 block text-xs font-medium text-white/80">Min (GHS)</label>
                 <input
                   type="number"
                   min="0"
-                  className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  className="w-full rounded-lg border border-white/30 bg-white/20 px-3 py-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
                   placeholder="0"
                   value={minPrice}
                   onChange={(e) => handlePriceChange("min", e.target.value)}
                 />
               </div>
-              <div>
+              <div className="flex-1 min-w-[100px]">
                 <label className="mb-1 block text-xs font-medium text-white/80">Max (GHS)</label>
                 <input
                   type="number"
                   min="0"
-                  className="w-28 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  className="w-full rounded-lg border border-white/30 bg-white/20 px-3 py-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/50"
                   placeholder="any"
                   value={maxPrice}
                   onChange={(e) => handlePriceChange("max", e.target.value)}
@@ -312,7 +312,7 @@ export default function SearchPage() {
                 className="card overflow-hidden animate-fadeInUp"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
-                <div className="flex h-40 items-center justify-center bg-brand/10 text-brand overflow-hidden">
+                <div className="flex h-36 sm:h-40 items-center justify-center bg-brand/10 text-brand overflow-hidden">
                   {h.image ? (
                     <img src={h.image} alt={h.name} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
                   ) : (

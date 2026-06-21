@@ -160,7 +160,7 @@ export default function NotificationsPage() {
           {activeTab === "all" && nextNotifUrl && (
             <button
               onClick={loadMoreNotifications}
-              className="btn-ghost w-full py-2 text-sm mt-2"
+              className="btn-ghost w-full py-3 text-sm mt-2 min-h-[44px]"
             >
               Load more
             </button>

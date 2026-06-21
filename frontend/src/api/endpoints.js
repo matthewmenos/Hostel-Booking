@@ -2,10 +2,13 @@
 import api from "./axios.js";
 
 export const authApi = {
-  login:    (username, password) => api.post("/auth/token/", { username, password }),
-  register: (payload) => api.post("/auth/register/", payload),
-  me:       () => api.get("/auth/me/"),
-  updateMe: (payload) => api.patch("/auth/me/", payload),
+  login:                (username, password) => api.post("/auth/token/", { username, password }),
+  register:             (payload) => api.post("/auth/register/", payload),
+  me:                   () => api.get("/auth/me/"),
+  updateMe:             (payload) => api.patch("/auth/me/", payload),
+  requestPasswordReset: (email) => api.post("/auth/password-reset/", { email }),
+  confirmPasswordReset: (uid, token, new_password) =>
+    api.post("/auth/password-reset/confirm/", { uid, token, new_password }),
 };
 
 export const hostelApi = {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ChevronLeft, ChevronRight, Check, Upload, MapPin,
+  ChevronLeft, ChevronRight, Check, MapPin,
   AlertCircle, CheckCircle2, X, Flag, Globe, Camera, Eye,
   RefreshCw, Loader2,
 } from "lucide-react";
@@ -25,7 +25,6 @@ function stopStream(stream) {
   stream?.getTracks().forEach((t) => t.stop());
 }
 
-/** Measure image sharpness via Laplacian variance on a canvas sample. */
 function blurScore(canvas) {
   const ctx = canvas.getContext("2d");
   const { width: w, height: h } = canvas;
@@ -36,7 +35,7 @@ function blurScore(canvas) {
     sum += g; sum2 += g * g; n++;
   }
   const mean = sum / n;
-  return sum2 / n - mean * mean; // variance = sharpness proxy
+  return sum2 / n - mean * mean;
 }
 
 function captureFrame(videoEl, canvas) {
@@ -46,7 +45,9 @@ function captureFrame(videoEl, canvas) {
 }
 
 function canvasToFile(canvas, name) {
-  return new Promise((res) => canvas.toBlob((b) => res(new File([b], name, { type: "image/jpeg" })), "image/jpeg", 0.92));
+  return new Promise((res) =>
+    canvas.toBlob((b) => res(new File([b], name, { type: "image/jpeg" })), "image/jpeg", 0.92)
+  );
 }
 
 // ── face-api.js lazy loader ───────────────────────────────────────────────────
@@ -61,7 +62,6 @@ function loadFaceApi() {
     script.src = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
     script.onload = async () => {
       const api = window.faceapi;
-      // Models hosted alongside the face-api.js release
       const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
       try {
         await Promise.all([
@@ -78,11 +78,10 @@ function loadFaceApi() {
   return faceApiPromise;
 }
 
-/** Eye Aspect Ratio — blink detection heuristic. */
+// ── Landmark geometry helpers ─────────────────────────────────────────────────
+
 function eyeAspectRatio(landmarks, eye) {
-  const pts = eye === "left"
-    ? [36, 37, 38, 39, 40, 41]
-    : [42, 43, 44, 45, 46, 47];
+  const pts = eye === "left" ? [36,37,38,39,40,41] : [42,43,44,45,46,47];
   const p = pts.map((i) => landmarks.positions[i]);
   const A = Math.hypot(p[1].x - p[5].x, p[1].y - p[5].y);
   const B = Math.hypot(p[2].x - p[4].x, p[2].y - p[4].y);
@@ -90,13 +89,30 @@ function eyeAspectRatio(landmarks, eye) {
   return (A + B) / (2 * C);
 }
 
-const EAR_THRESHOLD = 0.22;  // below this = eye closed
+const EAR_THRESHOLD = 0.22;
+
+/**
+ * Yaw estimation from face landmarks.
+ * Compares horizontal distance from nose tip to left vs right eye outer corners.
+ * Returns a value roughly in [-1, 1]: negative = face turned left, positive = right.
+ */
+function yawScore(landmarks) {
+  const pos = landmarks.positions;
+  const noseTip   = pos[30];
+  const leftEye   = pos[36];  // left eye outer corner
+  const rightEye  = pos[45];  // right eye outer corner
+  const distLeft  = noseTip.x - leftEye.x;
+  const distRight = rightEye.x - noseTip.x;
+  const total     = distLeft + distRight;
+  if (total < 1) return 0;
+  return (distRight - distLeft) / total; // >0 = turned right in real world (mirrored: looks left on screen)
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STEPS = ["Nationality", "ID Verification", "Face / Selfie", "Location", "Review & Pay"];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Step bar ──────────────────────────────────────────────────────────────────
 
 function StepBar({ current }) {
   return (
@@ -137,7 +153,7 @@ function StepBar({ current }) {
   );
 }
 
-// ── Step components ───────────────────────────────────────────────────────────
+// ── Step 0: Nationality ───────────────────────────────────────────────────────
 
 function Step0({ form, setForm }) {
   return (
@@ -186,7 +202,7 @@ function Step0({ form, setForm }) {
   );
 }
 
-// ── Live ID capture component ─────────────────────────────────────────────────
+// ── Live ID Capture (camera-only) ─────────────────────────────────────────────
 
 function LiveIdCapture({ label, file, onChange }) {
   const videoRef  = useRef(null);
@@ -194,10 +210,10 @@ function LiveIdCapture({ label, file, onChange }) {
   const streamRef = useRef(null);
   const rafRef    = useRef(null);
 
-  const [camState, setCamState]   = useState("idle"); // idle | starting | live | captured | denied
-  const [sharp, setSharp]         = useState(false);
+  const [camState, setCamState]         = useState("idle");   // idle|starting|live|captured|denied
+  const [sharp, setSharp]               = useState(false);
   const [autoCapturing, setAutoCapturing] = useState(false);
-  const inputRef = useRef(null);
+  const [sharpTicks, setSharpTicks]     = useState(0);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -210,31 +226,48 @@ function LiveIdCapture({ label, file, onChange }) {
   const openCamera = async () => {
     setCamState("starting");
     setSharp(false);
+    setSharpTicks(0);
     try {
       const stream = await startCamera(videoRef.current, "environment");
       streamRef.current = stream;
       setCamState("live");
 
       let ticks = 0;
+      let steadyTicks = 0;
+      const STEADY_NEEDED = 45; // ~1.5s at 30fps before auto-capture
+
       const check = () => {
+        if (!videoRef.current || videoRef.current.readyState < 2) {
+          rafRef.current = requestAnimationFrame(check);
+          return;
+        }
         captureFrame(videoRef.current, canvasRef.current);
-        const score = blurScore(canvasRef.current);
-        const isSharp = score > 80;
-        setSharp(isSharp);
+        const score    = blurScore(canvasRef.current);
+        const isSharp  = score > 80;
         ticks++;
-        // Auto-capture after 2s of sharpness
-        if (isSharp && ticks > 60) {
+
+        setSharp(isSharp);
+
+        if (isSharp) {
+          steadyTicks++;
+          setSharpTicks(steadyTicks);
+        } else {
+          steadyTicks = 0;
+          setSharpTicks(0);
+        }
+
+        if (steadyTicks >= STEADY_NEEDED) {
           setAutoCapturing(true);
-          setTimeout(async () => {
-            captureFrame(videoRef.current, canvasRef.current);
-            const f = await canvasToFile(canvasRef.current, `${label.replace(/\s+/g, "_")}.jpg`);
+          captureFrame(videoRef.current, canvasRef.current);
+          canvasToFile(canvasRef.current, `${label.replace(/\s+/g, "_")}.jpg`).then((f) => {
             onChange(f);
             stopCamera();
             setCamState("captured");
             setAutoCapturing(false);
-          }, 300);
+          });
           return;
         }
+
         rafRef.current = requestAnimationFrame(check);
       };
       rafRef.current = requestAnimationFrame(check);
@@ -246,57 +279,69 @@ function LiveIdCapture({ label, file, onChange }) {
   const retake = () => {
     onChange(null);
     setCamState("idle");
+    setSharp(false);
+    setSharpTicks(0);
   };
 
   const preview = file ? URL.createObjectURL(file) : null;
+  const progress = Math.min(100, Math.round((sharpTicks / 45) * 100));
 
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
 
       {camState === "idle" && !file && (
-        <div className="space-y-2">
-          <button type="button" onClick={openCamera}
-            className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
-              border-dashed border-brand/40 bg-brand/5 p-6 text-center cursor-pointer
-              hover:border-brand hover:bg-brand/10 transition-colors">
-            <Camera size={28} className="text-brand/70" />
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Capture with Camera</p>
-            <p className="text-xs text-gray-400">Auto-captures when card is clear & steady</p>
-          </button>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-            or upload file
-            <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-          </div>
-          <div onClick={() => inputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200
-              dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 cursor-pointer
-              hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Upload size={14} /> Choose file
-          </div>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { onChange(e.target.files[0] ?? null); setCamState("captured"); }} />
-        </div>
+        <button
+          type="button"
+          onClick={openCamera}
+          className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
+            border-dashed border-brand/40 bg-brand/5 p-6 text-center cursor-pointer
+            hover:border-brand hover:bg-brand/10 transition-colors"
+        >
+          <Camera size={28} className="text-brand/70" />
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Open Camera</p>
+          <p className="text-xs text-gray-400">Auto-captures when card is clear &amp; steady</p>
+        </button>
       )}
 
       {(camState === "starting" || camState === "live") && (
         <div className="relative rounded-xl overflow-hidden bg-black">
           <video ref={videoRef} muted playsInline className="w-full rounded-xl" />
-          {/* Card overlay guide */}
+
+          {/* Card guide overlay */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className={`border-4 rounded-lg transition-colors duration-300
-              ${sharp ? "border-green-400" : "border-white/60"}`}
-              style={{ width: "85%", height: "55%", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
+            <div
+              className={`border-4 rounded-lg transition-colors duration-300
+                ${sharp ? "border-green-400" : "border-white/60"}`}
+              style={{ width: "85%", height: "55%", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }}
+            />
           </div>
+
+          {/* Progress arc when sharp */}
+          {sharp && !autoCapturing && (
+            <div className="absolute top-2 right-2">
+              <svg width="40" height="40" className="-rotate-90">
+                <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+                <circle
+                  cx="20" cy="20" r="16" fill="none"
+                  stroke="#4ade80" strokeWidth="3"
+                  strokeDasharray={`${2 * Math.PI * 16}`}
+                  strokeDashoffset={`${2 * Math.PI * 16 * (1 - progress / 100)}`}
+                  style={{ transition: "stroke-dashoffset 0.1s linear" }}
+                />
+              </svg>
+            </div>
+          )}
+
           <div className="absolute bottom-3 left-0 right-0 flex flex-col items-center gap-1">
             {autoCapturing
-              ? <span className="rounded-full bg-green-500 px-3 py-1 text-xs text-white font-semibold">Capturing…</span>
+              ? <span className="rounded-full bg-green-500 px-3 py-1 text-xs text-white font-semibold animate-pulse">Capturing…</span>
               : sharp
-                ? <span className="rounded-full bg-green-500/80 px-3 py-1 text-xs text-white">Card detected — hold steady</span>
-                : <span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">Position card inside the frame</span>
+                ? <span className="rounded-full bg-green-500/80 px-3 py-1 text-xs text-white">Hold still…</span>
+                : <span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">Fit the card inside the frame</span>
             }
           </div>
+
           {camState === "starting" && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50">
               <Loader2 size={32} className="text-white animate-spin" />
@@ -311,27 +356,33 @@ function LiveIdCapture({ label, file, onChange }) {
           <div className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-green-500 px-2 py-0.5 text-[10px] font-semibold text-white">
             <CheckCircle2 size={10} /> Captured
           </div>
-          <button type="button" onClick={retake}
+          <button
+            type="button"
+            onClick={retake}
             className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center
-              rounded-full bg-black/60 text-white hover:bg-red-600 transition-colors">
+              rounded-full bg-black/60 text-white hover:bg-red-600 transition-colors"
+          >
             <RefreshCw size={12} />
           </button>
         </div>
       )}
 
       {camState === "denied" && (
-        <div className="rounded-xl border border-red-100 bg-red-50 dark:border-red-900/40 dark:bg-red-900/20 p-4 space-y-2">
+        <div className="rounded-xl border border-red-100 bg-red-50 dark:border-red-900/40 dark:bg-red-900/20 p-4 space-y-3">
           <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
             <AlertCircle size={15} /> Camera access denied.
           </p>
-          <div onClick={() => inputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200
-              dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 cursor-pointer
-              hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Upload size={14} /> Upload file instead
-          </div>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { onChange(e.target.files[0] ?? null); setCamState("captured"); }} />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Allow camera access in your browser settings, then retry.
+          </p>
+          <button
+            type="button"
+            onClick={openCamera}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600
+              px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <RefreshCw size={14} /> Retry Camera
+          </button>
         </div>
       )}
 
@@ -339,6 +390,8 @@ function LiveIdCapture({ label, file, onChange }) {
     </div>
   );
 }
+
+// ── Step 1: ID Capture ────────────────────────────────────────────────────────
 
 function Step1({ form, setForm }) {
   return (
@@ -353,7 +406,7 @@ function Step1({ form, setForm }) {
       <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-900/20">
         <p className="text-sm text-blue-700 dark:text-blue-300">
           <strong>Tips:</strong> Ensure all text is readable and no corners are cut off.
-          The camera auto-captures once the card is sharp and steady.
+          The camera auto-captures once the card is sharp and steady for ~1.5 seconds.
         </p>
       </div>
 
@@ -373,22 +426,38 @@ function Step1({ form, setForm }) {
   );
 }
 
-// ── Liveness selfie component ─────────────────────────────────────────────────
+// ── Liveness selfie (camera-only, automatic multi-challenge) ──────────────────
+
+/*
+ Challenge sequence (all automatic, no user taps):
+   1. DETECT  — wait for a face to appear in the oval
+   2. TURN_LEFT  — yaw score drops below -0.12 (face turns to their left)
+   3. TURN_RIGHT — yaw score rises above  +0.12 (face turns to their right)
+   4. BLINK   — EAR drops below threshold then recovers
+   5. CAPTURE — grab frame + descriptor, done
+*/
+
+const CHALLENGES = [
+  { id: "detect",     label: "Look at the camera",          icon: "👀" },
+  { id: "turn_left",  label: "Slowly turn your head LEFT",  icon: "←" },
+  { id: "turn_right", label: "Slowly turn your head RIGHT", icon: "→" },
+  { id: "blink",      label: "Now blink naturally",         icon: "😑" },
+];
 
 function LiveSelfie({ file, onChange, onDescriptor }) {
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const detectionRef = useRef(null);
+  const videoRef     = useRef(null);
+  const canvasRef    = useRef(null);
+  const streamRef    = useRef(null);
+  const intervalRef  = useRef(null);
 
-  const [camState, setCamState] = useState("idle"); // idle|loading|live|captured|denied|error
-  const [blinkState, setBlinkState] = useState("waiting"); // waiting|open|blink|captured
+  const [camState, setCamState]   = useState("idle");    // idle|loading|live|captured|denied|error
+  const [challenge, setChallenge] = useState(0);         // index into CHALLENGES
   const [statusMsg, setStatusMsg] = useState("");
-  const [eyesClosed, setEyesClosed] = useState(false);
-  const inputRef = useRef(null);
+  const [faceBox, setFaceBox]     = useState(null);      // {x,y,w,h} normalised 0-1
+  const [blinkFlash, setBlinkFlash] = useState(false);
 
   const stopCamera = useCallback(() => {
-    clearInterval(detectionRef.current);
+    clearInterval(intervalRef.current);
     stopStream(streamRef.current);
     streamRef.current = null;
   }, []);
@@ -397,190 +466,291 @@ function LiveSelfie({ file, onChange, onDescriptor }) {
 
   const openCamera = async () => {
     setCamState("loading");
-    setBlinkState("waiting");
-    setStatusMsg("Loading face detection models…");
+    setChallenge(0);
+    setFaceBox(null);
+    setStatusMsg("Loading face detection…");
 
     let fapi;
     try {
       fapi = await loadFaceApi();
     } catch {
       setCamState("error");
-      setStatusMsg("Failed to load face detection. Please use file upload.");
+      setStatusMsg("Face detection failed to load. Check your internet connection.");
       return;
     }
 
+    let stream;
     try {
-      const stream = await startCamera(videoRef.current, "user");
-      streamRef.current = stream;
-      setCamState("live");
-      setBlinkState("open");
-      setStatusMsg("Face detected — please blink naturally");
-
-      const tinyOpts = new fapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
-      let blinkSeen = false;
-      let eyesWereClosed = false;
-      let stableFrames = 0;
-
-      detectionRef.current = setInterval(async () => {
-        if (!videoRef.current || videoRef.current.readyState < 2) return;
-        const result = await fapi
-          .detectSingleFace(videoRef.current, tinyOpts)
-          .withFaceLandmarks(true);
-
-        if (!result) {
-          setStatusMsg("No face detected — look at the camera");
-          setEyesClosed(false);
-          return;
-        }
-
-        const lm = result.landmarks;
-        const leftEAR  = eyeAspectRatio(lm, "left");
-        const rightEAR = eyeAspectRatio(lm, "right");
-        const avgEAR   = (leftEAR + rightEAR) / 2;
-        const closed   = avgEAR < EAR_THRESHOLD;
-
-        setEyesClosed(closed);
-
-        if (!blinkSeen) {
-          if (closed) {
-            eyesWereClosed = true;
-            setBlinkState("blink");
-            setStatusMsg("Blink detected! Hold still…");
-          } else if (eyesWereClosed) {
-            // Eyes just re-opened → confirmed blink
-            blinkSeen = true;
-            stableFrames = 0;
-          } else {
-            setStatusMsg("Look at the camera and blink naturally");
-          }
-        }
-
-        if (blinkSeen) {
-          stableFrames++;
-          if (stableFrames >= 3) {
-            clearInterval(detectionRef.current);
-            setBlinkState("captured");
-            setStatusMsg("Liveness confirmed — capturing selfie…");
-
-            captureFrame(videoRef.current, canvasRef.current);
-            const selfieFile = await canvasToFile(canvasRef.current, "selfie.jpg");
-            onChange(selfieFile);
-            stopCamera();
-            setCamState("captured");
-
-            // Extract face descriptor for similarity check (best effort)
-            try {
-              const desc = await fapi
-                .detectSingleFace(canvasRef.current, tinyOpts)
-                .withFaceLandmarks(true)
-                .withFaceDescriptor();
-              if (desc) onDescriptor(desc.descriptor);
-            } catch { /* non-critical */ }
-          }
-        }
-      }, 150);
-
+      stream = await startCamera(videoRef.current, "user");
     } catch {
       setCamState("denied");
+      return;
     }
+
+    streamRef.current = stream;
+    setCamState("live");
+    setStatusMsg(CHALLENGES[0].label);
+
+    const tinyOpts = new fapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+
+    // Per-challenge state (kept in closure, reset on challenge advance)
+    let challengeIdx  = 0;
+    let detectFrames  = 0;   // consecutive frames with face for DETECT phase
+    let turnLeftDone  = false;
+    let turnRightDone = false;
+    let eyesWereClosed = false;
+
+    const DETECT_NEEDED = 8;   // must see face for N consecutive frames before advancing
+
+    const tick = async () => {
+      if (!videoRef.current || videoRef.current.readyState < 2) return;
+
+      const result = await fapi
+        .detectSingleFace(videoRef.current, tinyOpts)
+        .withFaceLandmarks(true);
+
+      if (!result) {
+        detectFrames = 0;
+        setFaceBox(null);
+        setStatusMsg("No face detected — position your face in the oval");
+        return;
+      }
+
+      // Update face box for the animated overlay
+      const vw = videoRef.current.videoWidth  || 1;
+      const vh = videoRef.current.videoHeight || 1;
+      const b  = result.detection.box;
+      setFaceBox({ x: b.x / vw, y: b.y / vh, w: b.width / vw, h: b.height / vh });
+
+      const lm       = result.landmarks;
+      const leftEAR  = eyeAspectRatio(lm, "left");
+      const rightEAR = eyeAspectRatio(lm, "right");
+      const avgEAR   = (leftEAR + rightEAR) / 2;
+      const closed   = avgEAR < EAR_THRESHOLD;
+      const yaw      = yawScore(lm);
+
+      // ── Challenge state machine ───────────────────────────────────────────
+
+      if (challengeIdx === 0) {
+        // DETECT: need N stable frames
+        detectFrames++;
+        if (detectFrames >= DETECT_NEEDED) {
+          challengeIdx = 1;
+          setChallenge(1);
+          setStatusMsg(CHALLENGES[1].label);
+        } else {
+          setStatusMsg("Hold still…");
+        }
+
+      } else if (challengeIdx === 1) {
+        // TURN_LEFT: wait for yaw < -0.12
+        setStatusMsg(CHALLENGES[1].label);
+        if (yaw < -0.12) {
+          turnLeftDone = true;
+          challengeIdx = 2;
+          setChallenge(2);
+          setStatusMsg(CHALLENGES[2].label);
+        }
+
+      } else if (challengeIdx === 2) {
+        // TURN_RIGHT: wait for yaw > +0.12
+        setStatusMsg(CHALLENGES[2].label);
+        if (yaw > 0.12) {
+          turnRightDone = true;
+          challengeIdx = 3;
+          setChallenge(3);
+          setStatusMsg(CHALLENGES[3].label);
+        }
+
+      } else if (challengeIdx === 3) {
+        // BLINK: detect close then reopen
+        setStatusMsg(closed ? "Blink detected — keep going…" : CHALLENGES[3].label);
+        if (closed) {
+          eyesWereClosed = true;
+          setBlinkFlash(true);
+        } else if (eyesWereClosed) {
+          // Eyes just reopened → blink confirmed
+          clearInterval(intervalRef.current);
+          setStatusMsg("All done — capturing selfie…");
+          setChallenge(4); // past last challenge = done
+
+          // Capture frame
+          captureFrame(videoRef.current, canvasRef.current);
+          const selfieFile = await canvasToFile(canvasRef.current, "selfie.jpg");
+          onChange(selfieFile);
+          stopCamera();
+          setCamState("captured");
+          setBlinkFlash(false);
+
+          // Extract descriptor for face-match check (non-critical)
+          try {
+            const desc = await fapi
+              .detectSingleFace(canvasRef.current, tinyOpts)
+              .withFaceLandmarks(true)
+              .withFaceDescriptor();
+            if (desc) onDescriptor(desc.descriptor);
+          } catch { /* non-critical */ }
+        }
+      }
+    };
+
+    intervalRef.current = setInterval(tick, 150);
   };
 
   const retake = () => {
     onChange(null);
     onDescriptor(null);
     setCamState("idle");
-    setBlinkState("waiting");
+    setChallenge(0);
+    setFaceBox(null);
+    setBlinkFlash(false);
   };
 
   const preview = file ? URL.createObjectURL(file) : null;
 
   return (
     <div className="space-y-3">
+
+      {/* ── Idle ── */}
       {camState === "idle" && !file && (
-        <div className="space-y-2">
-          <button type="button" onClick={openCamera}
-            className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
-              border-dashed border-brand/40 bg-brand/5 p-8 text-center cursor-pointer
-              hover:border-brand hover:bg-brand/10 transition-colors">
-            <Eye size={32} className="text-brand/70" />
-            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Live Selfie with Liveness Check</p>
-            <p className="text-xs text-gray-400">Camera opens → blink to confirm you're real → auto-captures</p>
-          </button>
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />or upload file
-            <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-          </div>
-          <div onClick={() => inputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200
-              dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 cursor-pointer
-              hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Upload size={14} /> Choose file
-          </div>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { onChange(e.target.files[0] ?? null); setCamState("captured"); }} />
-        </div>
+        <button
+          type="button"
+          onClick={openCamera}
+          className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2
+            border-dashed border-brand/40 bg-brand/5 p-8 text-center cursor-pointer
+            hover:border-brand hover:bg-brand/10 transition-colors"
+        >
+          <Eye size={32} className="text-brand/70" />
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Start Liveness Check</p>
+          <p className="text-xs text-gray-400">Camera guides you through automatic motions — no tapping needed</p>
+        </button>
       )}
 
+      {/* ── Loading / Live ── */}
       {(camState === "loading" || camState === "live") && (
-        <div className="relative rounded-xl overflow-hidden bg-black">
-          <video ref={videoRef} muted playsInline className="w-full rounded-xl" style={{ transform: "scaleX(-1)" }} />
-
-          {/* Oval face overlay */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className={`rounded-full border-4 transition-colors duration-300
-              ${eyesClosed ? "border-green-400 shadow-[0_0_12px_4px_rgba(74,222,128,0.5)]" : "border-white/70"}`}
-              style={{ width: 160, height: 200, boxShadow: eyesClosed
-                ? "0 0 0 9999px rgba(0,0,0,0.4), 0 0 12px 4px rgba(74,222,128,0.4)"
-                : "0 0 0 9999px rgba(0,0,0,0.4)" }} />
-          </div>
-
-          {/* Status pill */}
-          <div className="absolute bottom-3 left-0 right-0 flex justify-center">
-            <span className={`rounded-full px-3 py-1 text-xs font-medium text-white transition-colors
-              ${blinkState === "blink" || blinkState === "captured"
-                ? "bg-green-500"
-                : "bg-black/70"}`}>
-              {statusMsg || "Starting camera…"}
-            </span>
-          </div>
-
-          {camState === "loading" && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-              <Loader2 size={32} className="text-white animate-spin" />
+        <div className="space-y-3">
+          {/* Challenge progress pills */}
+          {camState === "live" && (
+            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+              {CHALLENGES.map((ch, i) => (
+                <span
+                  key={ch.id}
+                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-300
+                    ${i < challenge
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : i === challenge
+                        ? "bg-brand text-white shadow-md scale-105"
+                        : "bg-gray-100 text-gray-400 dark:bg-gray-700"
+                    }`}
+                >
+                  {i < challenge ? <CheckCircle2 size={11} /> : <span>{ch.icon}</span>}
+                  {ch.label.split(" ").slice(0, 3).join(" ")}
+                </span>
+              ))}
             </div>
           )}
+
+          {/* Camera viewport */}
+          <div className={`relative rounded-xl overflow-hidden bg-black transition-all duration-300
+            ${blinkFlash ? "ring-4 ring-green-400" : ""}`}>
+            <video
+              ref={videoRef}
+              muted
+              playsInline
+              className="w-full rounded-xl"
+              style={{ transform: "scaleX(-1)" }}
+            />
+
+            {/* Oval face guide */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div
+                className={`rounded-full border-4 transition-all duration-300
+                  ${faceBox
+                    ? challenge < 4
+                      ? "border-green-400 shadow-[0_0_16px_4px_rgba(74,222,128,0.4)]"
+                      : "border-brand"
+                    : "border-white/50"
+                  }`}
+                style={{
+                  width:      160,
+                  height:     200,
+                  boxShadow: `${faceBox
+                    ? "0 0 0 9999px rgba(0,0,0,0.35), 0 0 16px 4px rgba(74,222,128,0.3)"
+                    : "0 0 0 9999px rgba(0,0,0,0.5)"}`,
+                }}
+              />
+            </div>
+
+            {/* Challenge arrow hint for turn steps */}
+            {camState === "live" && challenge === 1 && (
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-4xl text-white/80 animate-bounce select-none">←</div>
+            )}
+            {camState === "live" && challenge === 2 && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-4xl text-white/80 animate-bounce select-none">→</div>
+            )}
+
+            {/* Status pill */}
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+              <span className={`rounded-full px-3 py-1 text-xs font-medium text-white transition-colors duration-300
+                ${challenge >= 4 || blinkFlash ? "bg-green-500" : faceBox ? "bg-brand/80" : "bg-black/70"}`}>
+                {statusMsg || "Starting…"}
+              </span>
+            </div>
+
+            {/* Loading overlay */}
+            {camState === "loading" && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
+                <Loader2 size={32} className="text-white animate-spin" />
+                <p className="text-xs text-white/70">Loading models…</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
+      {/* ── Captured ── */}
       {(camState === "captured" || file) && preview && (
         <div className="relative mx-auto max-w-xs">
-          <img src={preview} alt="Selfie"
+          <img
+            src={preview}
+            alt="Selfie"
             className="w-full rounded-xl object-cover ring-2 ring-green-400/60"
-            style={{ transform: "scaleX(-1)" }} />
+            style={{ transform: "scaleX(-1)" }}
+          />
           <div className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-green-500 px-2 py-0.5 text-[10px] font-semibold text-white">
             <CheckCircle2 size={10} /> Liveness verified
           </div>
-          <button type="button" onClick={retake}
+          <button
+            type="button"
+            onClick={retake}
             className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center
-              rounded-full bg-black/60 text-white hover:bg-red-600 transition-colors">
+              rounded-full bg-black/60 text-white hover:bg-red-600 transition-colors"
+          >
             <RefreshCw size={12} />
           </button>
         </div>
       )}
 
+      {/* ── Denied / Error ── */}
       {(camState === "denied" || camState === "error") && (
-        <div className="rounded-xl border border-red-100 bg-red-50 dark:border-red-900/40 dark:bg-red-900/20 p-4 space-y-2">
+        <div className="rounded-xl border border-red-100 bg-red-50 dark:border-red-900/40 dark:bg-red-900/20 p-4 space-y-3">
           <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
-            <AlertCircle size={15} /> {camState === "denied" ? "Camera access denied." : statusMsg}
+            <AlertCircle size={15} />
+            {camState === "denied" ? "Camera access denied." : statusMsg}
           </p>
-          <div onClick={() => inputRef.current?.click()}
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200
-              dark:border-gray-700 px-4 py-2.5 text-sm text-gray-500 cursor-pointer
-              hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Upload size={14} /> Upload selfie instead
-          </div>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { onChange(e.target.files[0] ?? null); setCamState("captured"); }} />
+          {camState === "denied" && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Allow camera access in your browser settings, then retry.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={openCamera}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600
+              px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <RefreshCw size={14} /> Retry
+          </button>
         </div>
       )}
 
@@ -589,21 +759,24 @@ function LiveSelfie({ file, onChange, onDescriptor }) {
   );
 }
 
+// ── Step 2: Face / Selfie ─────────────────────────────────────────────────────
+
 function Step2({ form, setForm, setSelfieDescriptor }) {
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Face Verification</h2>
         <p className="mt-0.5 text-sm text-gray-500">
-          We'll verify you're a real person using your camera.
+          We'll confirm you're a real person using a short motion sequence.
         </p>
       </div>
 
       <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-900/20">
         <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-300">
-          <li>• Remove sunglasses and hats</li>
-          <li>• Ensure your face is well lit — look at the camera</li>
-          <li>• When prompted, <strong>blink naturally</strong> to prove liveness</li>
+          <li>• Remove sunglasses, hats, or anything covering your face</li>
+          <li>• Ensure your face is well lit and centred in the oval</li>
+          <li>• Follow the on-screen prompts — turn left, turn right, then blink</li>
+          <li>• Everything happens automatically — no tapping needed</li>
         </ul>
       </div>
 
@@ -618,24 +791,19 @@ function Step2({ form, setForm, setSelfieDescriptor }) {
   );
 }
 
+// ── Step 3: Location ──────────────────────────────────────────────────────────
+
 function Step3({ form, setForm }) {
   const [geoStatus, setGeoStatus] = useState(
-    form.latitude ? "acquired" : "idle"  // idle | loading | acquired | denied
+    form.latitude ? "acquired" : "idle"
   );
 
   const shareLocation = () => {
-    if (!navigator.geolocation) {
-      setGeoStatus("denied");
-      return;
-    }
+    if (!navigator.geolocation) { setGeoStatus("denied"); return; }
     setGeoStatus("loading");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setForm((f) => ({
-          ...f,
-          latitude:  pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        }));
+        setForm((f) => ({ ...f, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
         setGeoStatus("acquired");
       },
       () => setGeoStatus("denied"),
@@ -652,7 +820,6 @@ function Step3({ form, setForm }) {
         </p>
       </div>
 
-      {/* GPS capture */}
       <div className="space-y-3">
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">GPS Coordinates</p>
         <button
@@ -686,7 +853,6 @@ function Step3({ form, setForm }) {
         )}
       </div>
 
-      {/* Typed address */}
       <div>
         <label className="label">Business Address / Landmark *</label>
         <textarea
@@ -704,13 +870,15 @@ function Step3({ form, setForm }) {
   );
 }
 
+// ── Step 4: Review & Pay ──────────────────────────────────────────────────────
+
 function Step4({ form, busy, onPay, faceWarning }) {
   const rows = [
-    { label: "Nationality",  value: form.nationality || "—" },
-    { label: "Address",      value: form.address || "—" },
-    { label: "GPS",          value: form.latitude ? `${form.latitude.toFixed(5)}, ${form.longitude.toFixed(5)}` : "Not captured" },
-    { label: "Ghana Card",   value: (form.id_front && form.id_back) ? "Both sides uploaded ✓" : "Incomplete" },
-    { label: "Selfie",       value: form.selfie ? "Captured ✓" : "Not captured" },
+    { label: "Nationality", value: form.nationality || "—" },
+    { label: "Address",     value: form.address || "—" },
+    { label: "GPS",         value: form.latitude ? `${form.latitude.toFixed(5)}, ${form.longitude.toFixed(5)}` : "Not captured" },
+    { label: "Ghana Card",  value: (form.id_front && form.id_back) ? "Both sides captured ✓" : "Incomplete" },
+    { label: "Selfie",      value: form.selfie ? "Liveness verified ✓" : "Not captured" },
   ];
 
   return (
@@ -727,12 +895,11 @@ function Step4({ form, busy, onPay, faceWarning }) {
           <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-700 dark:text-amber-300">
             <strong>Face mismatch warning:</strong> Your selfie may not match the ID photo.
-            Please ensure both images clearly show your face. You can still submit — an admin will review.
+            Ensure both images clearly show your face. You can still submit — an admin will review.
           </p>
         </div>
       )}
 
-      {/* Summary */}
       <div className="rounded-xl border border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
         <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {rows.map(({ label, value }) => (
@@ -750,7 +917,6 @@ function Step4({ form, busy, onPay, faceWarning }) {
         </div>
       </div>
 
-      {/* Payment card */}
       <div className="rounded-xl border border-brand/20 bg-brand/5 px-5 py-4 dark:bg-brand/10">
         <div className="flex items-center justify-between">
           <div>
@@ -784,41 +950,40 @@ function Step4({ form, busy, onPay, faceWarning }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
-  nationality_type: "",   // "Ghanaian" | "Other"
+  nationality_type: "",
   nationality: "",
-  id_front: null,
-  id_back: null,
-  selfie: null,
-  latitude: null,
+  id_front:  null,
+  id_back:   null,
+  selfie:    null,
+  latitude:  null,
   longitude: null,
-  address: "",
+  address:   "",
 };
 
 export default function ManagerVerificationPage() {
   const navigate = useNavigate();
   const { addToast } = useToast();
 
-  const [step, setStep]       = useState(0);
-  const [animKey, setAnimKey] = useState(0);
+  const [step, setStep]         = useState(0);
+  const [animKey, setAnimKey]   = useState(0);
   const [slideDir, setSlideDir] = useState(1);
-  const [form, setForm]       = useState(EMPTY_FORM);
-  const [busy, setBusy]       = useState(false);
-  const [paid, setPaid]       = useState(false);
+  const [form, setForm]         = useState(EMPTY_FORM);
+  const [busy, setBusy]         = useState(false);
+  const [paid, setPaid]         = useState(false);
   const [selfieDescriptor, setSelfieDescriptor] = useState(null);
-  const [faceWarning, setFaceWarning] = useState(false);
+  const [faceWarning, setFaceWarning]           = useState(false);
 
   const goTo = async (next) => {
     setSlideDir(next > step ? 1 : -1);
     setStep(next);
     setAnimKey((k) => k + 1);
 
-    // Run face similarity check when entering the review step
     if (next === 4 && selfieDescriptor && form.id_front) {
       try {
-        const fapi = await loadFaceApi();
+        const fapi     = await loadFaceApi();
         const tinyOpts = new fapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 });
-        const img = document.createElement("img");
-        img.src = URL.createObjectURL(form.id_front);
+        const img      = document.createElement("img");
+        img.src        = URL.createObjectURL(form.id_front);
         await new Promise((res) => { img.onload = res; });
         const idResult = await fapi
           .detectSingleFace(img, tinyOpts)
@@ -826,7 +991,7 @@ export default function ManagerVerificationPage() {
           .withFaceDescriptor();
         if (idResult) {
           const dist = fapi.euclideanDistance(selfieDescriptor, idResult.descriptor);
-          setFaceWarning(dist > 0.5); // 0.5 = likely different person
+          setFaceWarning(dist > 0.5);
         }
         URL.revokeObjectURL(img.src);
       } catch { /* non-critical */ }
@@ -834,17 +999,17 @@ export default function ManagerVerificationPage() {
   };
 
   const validate = () => {
-    if (step === 0) {
-      if (!form.nationality) { addToast("error", "Please select your nationality."); return false; }
+    if (step === 0 && !form.nationality) {
+      addToast("error", "Please select your nationality."); return false;
     }
-    if (step === 1) {
-      if (!form.id_front || !form.id_back) { addToast("error", "Upload both sides of your Ghana Card."); return false; }
+    if (step === 1 && (!form.id_front || !form.id_back)) {
+      addToast("error", "Capture both sides of your Ghana Card."); return false;
     }
-    if (step === 2) {
-      if (!form.selfie) { addToast("error", "Upload your selfie photo."); return false; }
+    if (step === 2 && !form.selfie) {
+      addToast("error", "Complete the liveness check to continue."); return false;
     }
-    if (step === 3) {
-      if (!form.address.trim()) { addToast("error", "Business address is required."); return false; }
+    if (step === 3 && !form.address.trim()) {
+      addToast("error", "Business address is required."); return false;
     }
     return true;
   };
@@ -857,17 +1022,16 @@ export default function ManagerVerificationPage() {
     try {
       const fd = new FormData();
       fd.append("nationality", form.nationality);
-      fd.append("id_front", form.id_front);
-      fd.append("id_back", form.id_back);
-      fd.append("selfie", form.selfie);
-      fd.append("address", form.address);
-      if (form.latitude != null)  fd.append("latitude",  form.latitude);
+      fd.append("id_front",   form.id_front);
+      fd.append("id_back",    form.id_back);
+      fd.append("selfie",     form.selfie);
+      fd.append("address",    form.address);
+      if (form.latitude  != null) fd.append("latitude",  form.latitude);
       if (form.longitude != null) fd.append("longitude", form.longitude);
 
       const { data } = await managerApi.submitVerification(fd);
 
       if (data.stub) {
-        // Dev mode: payment auto-confirmed, skip Paystack
         addToast("success", "Verification submitted (dev mode — payment auto-confirmed).");
         setPaid(true);
       } else if (data.authorization_url) {
@@ -878,8 +1042,8 @@ export default function ManagerVerificationPage() {
         addToast("error", "Payment initiation failed. Please try again.");
       }
     } catch (err) {
-      const data = err.response?.data;
-      const msg = data?.detail || (typeof data === "object" ? Object.values(data).flat()[0] : null);
+      const d   = err.response?.data;
+      const msg = d?.detail || (typeof d === "object" ? Object.values(d).flat()[0] : null);
       addToast("error", msg ?? "Submission failed. Please try again.");
     } finally {
       setBusy(false);
@@ -890,7 +1054,6 @@ export default function ManagerVerificationPage() {
     animation: `slideIn${slideDir > 0 ? "Right" : "Left"} 0.28s cubic-bezier(0.4,0,0.2,1) forwards`,
   };
 
-  // ── Post-payment waiting screen ───────────────────────────────────────────
   if (paid) {
     return (
       <div className="mx-auto max-w-lg">
@@ -929,7 +1092,6 @@ export default function ManagerVerificationPage() {
       `}</style>
 
       <div className="mx-auto max-w-2xl">
-        {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Identity Verification</h1>
@@ -949,7 +1111,6 @@ export default function ManagerVerificationPage() {
         <StepBar current={step} />
 
         <div className="card overflow-hidden p-6 sm:p-8">
-          {/* Animated step content */}
           <div key={animKey} style={slideStyle}>
             {step === 0 && <Step0 form={form} setForm={setForm} />}
             {step === 1 && <Step1 form={form} setForm={setForm} />}
@@ -958,7 +1119,6 @@ export default function ManagerVerificationPage() {
             {step === 4 && <Step4 form={form} busy={busy} onPay={handlePay} faceWarning={faceWarning} />}
           </div>
 
-          {/* Navigation */}
           <div className="mt-8 flex items-center justify-between">
             <button
               type="button"
@@ -971,18 +1131,15 @@ export default function ManagerVerificationPage() {
               <ChevronLeft size={16} /> Back
             </button>
 
-            {/* Step dots */}
             <div className="flex gap-2">
               {STEPS.map((_, i) => (
                 <div
                   key={i}
                   className="rounded-full transition-all duration-300"
                   style={{
-                    width: i === step ? "20px" : "6px",
-                    height: "6px",
-                    background: i === step
-                      ? "var(--color-brand, #6366f1)"
-                      : i < step ? "#a5b4fc" : "#e5e7eb",
+                    width:      i === step ? "20px" : "6px",
+                    height:     "6px",
+                    background: i === step ? "var(--color-brand, #6366f1)" : i < step ? "#a5b4fc" : "#e5e7eb",
                   }}
                 />
               ))}
@@ -994,7 +1151,7 @@ export default function ManagerVerificationPage() {
                 Next <ChevronRight size={16} />
               </button>
             ) : (
-              <div className="w-24" /> // spacer — pay button is inside Step4
+              <div className="w-24" />
             )}
           </div>
         </div>

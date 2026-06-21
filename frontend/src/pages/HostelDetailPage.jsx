@@ -274,14 +274,14 @@ export default function HostelDetailPage() {
             </div>
             <div className="mt-3 space-y-2">
               {room.beds.map((bed) => (
-                <div key={bed.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
-                  <span className="flex items-center gap-2 text-sm">
-                    <BedDouble size={16} /> {bed.bed_label}
+                <div key={bed.id} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5 gap-2">
+                  <span className="flex items-center gap-2 text-sm min-w-0 truncate">
+                    <BedDouble size={16} className="shrink-0" /> {bed.bed_label}
                   </span>
                   {bed.is_occupied ? (
-                    <span className="text-xs text-gray-400">Taken</span>
+                    <span className="text-xs text-gray-400 shrink-0">Taken</span>
                   ) : (
-                    <button onClick={() => book(bed.id)} className="btn-primary px-4 py-2 text-xs min-h-[36px]">
+                    <button onClick={() => book(bed.id)} className="btn-primary shrink-0 px-4 py-2 text-xs">
                       Book
                     </button>
                   )}

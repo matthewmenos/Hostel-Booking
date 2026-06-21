@@ -75,14 +75,24 @@ export default function BookingPage() {
         duration_months: months,
       });
       const payUrl = data.payment?.authorization_url;
-      if (payUrl) {
+      // In dev mode the stub URL points to checkout.paystack.com/stub/... which is a dead page.
+      // Detect it and fall back to dashboard so the student isn't left stranded.
+      const isStub = data.payment?.stub === true || payUrl?.includes("/stub/");
+      if (payUrl && !isStub) {
         window.location.href = payUrl;
       } else {
         addToast("success", `Booking #${data.booking.id} created. Complete payment from your dashboard.`);
         navigate("/dashboard/bookings");
       }
     } catch (err) {
-      addToast("error", err.response?.data?.detail ?? "Booking failed. Please try again.");
+      const detail = err.response?.data?.detail ?? "Booking failed. Please try again.";
+      // 409 = student already has an active booking
+      if (err.response?.status === 409) {
+        addToast("error", detail);
+        navigate("/dashboard/bookings");
+        return;
+      }
+      addToast("error", detail);
       setSubmitting(false);
     }
   };

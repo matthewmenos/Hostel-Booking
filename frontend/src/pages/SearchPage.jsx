@@ -333,14 +333,39 @@ export default function SearchPage() {
       {/* Hostel grid / map */}
       {!loading && !error && (
         <>
-          {/* Map view */}
+          {/* Map view — map + scrollable card strip below */}
           {viewMode === "map" && hostels.length > 0 && (() => {
             const hostelCoords = hostels.map((h) => ({ hostel: h, ...resolveCoords(h) }));
             return (
-              <div className="mb-4">
-                <Suspense fallback={<div className="h-[500px] rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />}>
-                  <SearchMapLazy hostelCoords={hostelCoords} activeSlug={hoveredSlug} height="500px" />
+              <div className="mb-4 space-y-3">
+                <Suspense fallback={<div className="h-[420px] rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />}>
+                  <SearchMapLazy hostelCoords={hostelCoords} activeSlug={hoveredSlug} height="420px" />
                 </Suspense>
+                {/* Horizontal card strip so hover-to-highlight still works */}
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+                  {hostels.map((h) => {
+                    const free = (h.total_capacity || 0) - (h.active_bookings_count || 0);
+                    return (
+                      <Link
+                        key={h.slug}
+                        to={`/hostels/${h.slug}`}
+                        onMouseEnter={() => setHoveredSlug(h.slug)}
+                        onMouseLeave={() => setHoveredSlug(null)}
+                        className={`shrink-0 w-48 rounded-xl border p-3 transition cursor-pointer
+                          ${hoveredSlug === h.slug
+                            ? "border-brand bg-brand/5 shadow-md"
+                            : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-brand/50"}`}
+                      >
+                        <p className="font-semibold text-sm truncate text-gray-900 dark:text-gray-100">{h.name}</p>
+                        <p className="text-xs text-gray-400 truncate">{h.campus_display}</p>
+                        <p className="mt-1 text-sm font-bold text-brand">GHS {h.base_price}<span className="text-xs font-normal text-gray-400">/bed</span></p>
+                        <p className={`text-xs mt-0.5 font-medium ${free > 0 ? "text-green-600" : "text-red-500"}`}>
+                          {free > 0 ? `${free} bed${free !== 1 ? "s" : ""} free` : "Full"}
+                        </p>
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
             );
           })()}

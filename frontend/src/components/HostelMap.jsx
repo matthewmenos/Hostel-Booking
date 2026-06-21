@@ -60,6 +60,21 @@ function Recenter({ center, zoom }) {
   return null;
 }
 
+// FitBounds helper — zooms map to show all markers on mount
+function FitBounds({ coords }) {
+  const map = useMap();
+  useEffect(() => {
+    if (coords.length === 0) return;
+    if (coords.length === 1) {
+      map.setView([coords[0].lat, coords[0].lng], 14);
+      return;
+    }
+    const bounds = L.latLngBounds(coords.map((c) => [c.lat, c.lng]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  }, []); // only on mount
+  return null;
+}
+
 // Draggable pin for LocationPicker
 function DraggableMarker({ position, onChange }) {
   const markerRef = useRef(null);
@@ -148,28 +163,26 @@ export function HostelMap({ hostel, lat, lng, height = "280px" }) {
  *   height       — CSS height string
  */
 export function SearchMap({ hostelCoords, activeSlug, height = "480px" }) {
-  const navigate   = useNavigate();
-  const [center, setCenter] = useState(null);
-  const [zoom]     = useState(13);
+  const navigate = useNavigate();
+  const [flyTo, setFlyTo] = useState(null);
 
-  // Fly to the active hostel when user hovers a card
+  // Fly to the hovered card's pin
   useEffect(() => {
     if (!activeSlug) return;
     const match = hostelCoords.find((h) => h.hostel.slug === activeSlug);
-    if (match) setCenter([match.lat, match.lng]);
+    if (match) setFlyTo([match.lat, match.lng]);
   }, [activeSlug, hostelCoords]);
 
   if (hostelCoords.length === 0) return null;
 
-  // Initial center = average of all pins
-  const avgLat = hostelCoords.reduce((s, h) => s + h.lat, 0) / hostelCoords.length;
-  const avgLng = hostelCoords.reduce((s, h) => s + h.lng, 0) / hostelCoords.length;
+  // Placeholder center (overridden by FitBounds on mount)
+  const first = hostelCoords[0];
 
   return (
     <div className="rounded-xl overflow-hidden shadow-sm" style={{ height }}>
       <MapContainer
-        center={[avgLat, avgLng]}
-        zoom={zoom}
+        center={[first.lat, first.lng]}
+        zoom={7}
         style={{ height: "100%", width: "100%" }}
         scrollWheelZoom
       >
@@ -177,7 +190,8 @@ export function SearchMap({ hostelCoords, activeSlug, height = "480px" }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {center && <Recenter center={center} zoom={15} />}
+        <FitBounds coords={hostelCoords} />
+        {flyTo && <Recenter center={flyTo} zoom={15} />}
         {hostelCoords.map(({ hostel: h, lat, lng }) => {
           const isActive = h.slug === activeSlug;
           const free = (h.total_capacity || 0) - (h.active_bookings_count || 0);
@@ -192,13 +206,13 @@ export function SearchMap({ hostelCoords, activeSlug, height = "480px" }) {
                 <div className="text-sm space-y-1" style={{ minWidth: 160 }}>
                   <p className="font-semibold leading-tight">{h.name}</p>
                   <p className="text-gray-500 text-xs">{h.campus_display}</p>
-                  <p className="font-bold text-indigo-600">GHS {h.base_price}<span className="font-normal text-gray-400 text-xs">/bed</span></p>
+                  <p className="font-bold text-brand">GHS {h.base_price}<span className="font-normal text-gray-400 text-xs">/bed</span></p>
                   <p className={`text-xs font-medium ${free > 0 ? "text-green-600" : "text-red-500"}`}>
                     {free > 0 ? `${free} bed${free !== 1 ? "s" : ""} free` : "Full"}
                   </p>
                   <button
                     onClick={() => navigate(`/hostels/${h.slug}`)}
-                    className="mt-1 w-full rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700 transition"
+                    className="mt-1 w-full rounded bg-brand px-2 py-1 text-xs text-white hover:opacity-90 transition"
                   >
                     View hostel
                   </button>

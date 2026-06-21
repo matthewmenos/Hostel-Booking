@@ -294,7 +294,7 @@ export default function HostelDetailPage() {
   const [hostel, setHostel] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [roomFilter, setRoomFilter] = useState("all");
-  const [status, setStatus] = useState({ loading: true, error: null, booking: null });
+  const [status, setStatus] = useState({ loading: true, error: null });
 
   useEffect(() => {
     setStatus((s) => ({ ...s, loading: true }));
@@ -302,9 +302,9 @@ export default function HostelDetailPage() {
       .then(([h, r]) => {
         setHostel(h.data);
         setRooms(r.data.results ?? r.data);
-        setStatus((s) => ({ ...s, loading: false }));
+        setStatus({ loading: false, error: null });
       })
-      .catch(() => setStatus({ loading: false, error: "Could not load this hostel.", booking: null }));
+      .catch(() => setStatus({ loading: false, error: "Could not load this hostel." }));
   }, [slug]);
 
   const book = (bedId) => {
@@ -335,10 +335,10 @@ export default function HostelDetailPage() {
     <ErrorPage
       message={status.error}
       onRetry={() => {
-        setStatus({ loading: true, error: null, booking: null });
+        setStatus({ loading: true, error: null });
         Promise.all([hostelApi.get(slug), tenantApi.rooms(slug)])
-          .then(([h, r]) => { setHostel(h.data); setRooms(r.data.results ?? r.data); setStatus({ loading: false, error: null, booking: null }); })
-          .catch(() => setStatus({ loading: false, error: "Could not load this hostel.", booking: null }));
+          .then(([h, r]) => { setHostel(h.data); setRooms(r.data.results ?? r.data); setStatus({ loading: false, error: null }); })
+          .catch(() => setStatus({ loading: false, error: "Could not load this hostel." }));
       }}
     />
   );
@@ -467,12 +467,14 @@ export default function HostelDetailPage() {
             </Suspense>
             <p className="text-xs text-gray-400">
               {hostel.latitude != null
-                ? "Exact location set by the hostel manager."
+                ? "Exact location — set by the hostel manager."
                 : `Approximate — pin shows the ${hostel.campus_display} campus area.`}
             </p>
           </div>
         );
       })()}
+
+
 
       <ReviewsSection slug={slug} hostel={hostel} />
     </div>

@@ -392,3 +392,29 @@ class MessageReaction(models.Model):
 
     def __str__(self):
         return f"{self.emoji} by {self.user.username} on msg #{self.message_id}"
+
+
+# ---------------------------------------------------------------------------
+# Hostel Reviews
+# ---------------------------------------------------------------------------
+
+class HostelReview(models.Model):
+    """A student's rating and comment for a hostel they stayed at."""
+    hostel   = models.ForeignKey(TenantHostel, related_name="reviews", on_delete=models.CASCADE)
+    student  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="reviews", on_delete=models.CASCADE
+    )
+    booking  = models.OneToOneField(
+        GlobalBooking, related_name="review", on_delete=models.CASCADE
+    )
+    rating   = models.PositiveSmallIntegerField()  # 1–5
+    comment  = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        unique_together = ("hostel", "student")  # one review per hostel per student
+
+    def __str__(self):
+        return f"Review by {self.student.username} for {self.hostel.name} ({self.rating}★)"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, Trash2,
+  Building2, Plus, BedDouble, Percent, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2,
   Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
   ShieldAlert, Clock, AlertCircle, MessageSquare, Wrench,
 } from "lucide-react";
@@ -17,6 +17,7 @@ const TABS = [
   { id: "gallery",       label: "Gallery" },
   { id: "announcements", label: "Announcements" },
   { id: "bookings",      label: "Bookings" },
+  { id: "calendar",      label: "Calendar" },
   { id: "messages",      label: "Messages" },
   { id: "analytics",     label: "Analytics" },
   { id: "payouts",       label: "Payouts" },
@@ -198,6 +199,7 @@ export default function ManagerPortal() {
       {tab === "gallery"       && <GalleryTab slug={active} hostels={hostels} active={active} onHostelUpdated={(updated) => setHostels((prev) => prev.map((h) => h.slug === updated.slug ? updated : h))} />}
       {tab === "announcements" && <AnnouncementsTab slug={active} />}
       {tab === "bookings"      && <BookingsTab slug={active} hostels={hostels} />}
+      {tab === "calendar"      && <OccupancyCalendarTab slug={active} />}
       {tab === "messages"      && <MessagesTab hostels={hostels} activeSlug={active} />}
       {tab === "analytics"     && <AnalyticsTab />}
       {tab === "payouts"       && <PayoutsTab />}
@@ -442,6 +444,18 @@ function RoomsTab({ slug, rooms, onRoomsChange }) {
 
 function BedManager({ slug, room, cap, onRefresh }) {
   const { addToast } = useToast();
+  const [selected, setSelected] = useState(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const occupiedBeds = room.beds.filter((b) => b.is_occupied);
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const vacateBed = async (bedId) => {
     try {
@@ -451,6 +465,21 @@ function BedManager({ slug, room, cap, onRefresh }) {
     } catch {
       addToast("error", "Could not vacate bed.");
     }
+  };
+
+  const bulkVacate = async () => {
+    if (selected.size === 0) return;
+    setBulkLoading(true);
+    let ok = 0, fail = 0;
+    for (const id of selected) {
+      try { await tenantApi.vacateBed(slug, id); ok++; }
+      catch { fail++; }
+    }
+    await onRefresh();
+    setSelected(new Set());
+    setBulkLoading(false);
+    if (fail === 0) addToast("success", `${ok} bed${ok > 1 ? "s" : ""} vacated.`);
+    else addToast("error", `${ok} vacated, ${fail} failed.`);
   };
 
   const deleteBed = async (bedId) => {
@@ -465,22 +494,49 @@ function BedManager({ slug, room, cap, onRefresh }) {
 
   return (
     <div className="ml-2 sm:ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
-      <p className="text-xs text-gray-400 mb-2">
-        {room.beds.length}/{cap} beds present · {room.beds.filter(b => b.is_occupied).length} occupied
-      </p>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-xs text-gray-400">
+          {room.beds.length}/{cap} beds · {room.beds.filter(b => b.is_occupied).length} occupied
+        </p>
+        {selected.size > 0 && (
+          <button
+            onClick={bulkVacate}
+            disabled={bulkLoading}
+            className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-2.5 py-1 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition disabled:opacity-60"
+          >
+            {bulkLoading ? "Vacating…" : `Vacate ${selected.size} selected`}
+          </button>
+        )}
+        {occupiedBeds.length > 1 && selected.size === 0 && (
+          <button
+            onClick={() => setSelected(new Set(occupiedBeds.map((b) => b.id)))}
+            className="text-xs text-gray-400 hover:text-gray-600 underline"
+          >
+            Select all occupied
+          </button>
+        )}
+      </div>
       {room.beds.map((bed) => (
-        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-2 text-sm shadow-sm">
-          <span className="flex items-center gap-2">
+        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-2 text-sm shadow-sm gap-2">
+          <span className="flex items-center gap-2 min-w-0">
+            {bed.is_occupied && (
+              <input
+                type="checkbox"
+                checked={selected.has(bed.id)}
+                onChange={() => toggleSelect(bed.id)}
+                className="rounded border-gray-300 text-brand focus:ring-brand shrink-0"
+              />
+            )}
             <BedDouble size={14} className="shrink-0 text-gray-400" />
-            <span className="font-medium">{bed.bed_label}</span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium
+            <span className="font-medium truncate">{bed.bed_label}</span>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium
               ${bed.is_occupied
                 ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                 : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
               {bed.is_occupied ? "Occupied" : "Vacant"}
             </span>
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {bed.is_occupied ? (
               <button
                 onClick={() => vacateBed(bed.id)}
@@ -806,6 +862,122 @@ function AnalyticsTab() {
           {data.hostels.length === 0 && <p className="text-sm text-gray-400">No hostel data yet.</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Occupancy Calendar tab ────────────────────────────────────────────────────
+
+function OccupancyCalendarTab({ slug }) {
+  const { addToast } = useToast();
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth()); // 0-indexed
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!slug) return;
+    setLoading(true);
+    bookingApi.managerBookings(slug)
+      .then(({ data }) => setBookings(data.results ?? data))
+      .catch(() => addToast("error", "Could not load bookings for calendar."))
+      .finally(() => setLoading(false));
+  }, [slug]);
+
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // Count active bookings that overlap each day
+  const countForDay = (day) => {
+    const target = new Date(year, month, day);
+    return bookings.filter((b) => {
+      const status = b.payment_status;
+      if (status !== "paid" && status !== "paid_awaiting_approval") return false;
+      const created = new Date(b.created_at);
+      const approved = b.approved_at ? new Date(b.approved_at) : null;
+      const start = approved ?? created;
+      // Treat booking as active on target day if created on or before that day
+      return start <= target;
+    }).length;
+  };
+
+  const prevMonth = () => {
+    if (month === 0) { setMonth(11); setYear((y) => y - 1); }
+    else setMonth((m) => m - 1);
+  };
+  const nextMonth = () => {
+    if (month === 11) { setMonth(0); setYear((y) => y + 1); }
+    else setMonth((m) => m + 1);
+  };
+
+  const maxCount = Math.max(1, ...Array.from({ length: daysInMonth }, (_, i) => countForDay(i + 1)));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={prevMonth} className="btn-ghost p-2 rounded-lg"><ChevronLeft size={18} /></button>
+        <h3 className="font-semibold text-lg">{MONTHS[month]} {year}</h3>
+        <button onClick={nextMonth} className="btn-ghost p-2 rounded-lg"><ChevronRight size={18} /></button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-8">Loading…</p>
+      ) : (
+        <div className="card p-4">
+          {/* Day headers */}
+          <div className="grid grid-cols-7 mb-1">
+            {DAYS.map((d) => (
+              <div key={d} className="text-center text-xs font-medium text-gray-400 py-1">{d}</div>
+            ))}
+          </div>
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {/* Empty cells for offset */}
+            {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const day = i + 1;
+              const count = countForDay(day);
+              const intensity = count === 0 ? 0 : Math.ceil((count / maxCount) * 4);
+              const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+              const bgClass = count === 0
+                ? "bg-gray-50 dark:bg-gray-800"
+                : intensity === 1 ? "bg-brand/10"
+                : intensity === 2 ? "bg-brand/25"
+                : intensity === 3 ? "bg-brand/45"
+                : "bg-brand/70";
+              return (
+                <div
+                  key={day}
+                  title={`${count} active booking${count !== 1 ? "s" : ""}`}
+                  className={`rounded-lg p-1 text-center aspect-square flex flex-col items-center justify-center
+                    ${bgClass} ${isToday ? "ring-2 ring-brand" : ""}`}
+                >
+                  <span className={`text-xs font-medium ${isToday ? "text-brand font-bold" : "text-gray-700 dark:text-gray-200"}`}>{day}</span>
+                  {count > 0 && <span className="text-[10px] text-brand font-semibold">{count}</span>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+            <span>Bookings / day:</span>
+            {["0","Low","Mid","High","Full"].map((label, i) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className={`inline-block w-4 h-4 rounded ${
+                  i === 0 ? "bg-gray-100 dark:bg-gray-700"
+                  : i === 1 ? "bg-brand/10"
+                  : i === 2 ? "bg-brand/25"
+                  : i === 3 ? "bg-brand/45"
+                  : "bg-brand/70"}`} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

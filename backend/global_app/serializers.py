@@ -5,6 +5,7 @@ from rest_framework import serializers
 from .models import (
     TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification,
     Notification, ChatRoom, ChatMembership, ChatMessage, MessageReaction,
+    HostelReview,
 )
 
 
@@ -15,6 +16,30 @@ class HostelImageSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "uploaded_at")
 
 
+class HostelReviewSerializer(serializers.ModelSerializer):
+    student_username = serializers.CharField(source="student.username", read_only=True)
+    student_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HostelReview
+        fields = (
+            "id", "hostel", "student", "student_username", "student_name",
+            "booking", "rating", "comment", "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "student", "created_at", "updated_at")
+
+    def get_student_name(self, obj):
+        fn, ln = obj.student.first_name, obj.student.last_name
+        if fn or ln:
+            return f"{fn} {ln}".strip()
+        return obj.student.username
+
+    def validate_rating(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("Rating must be between 1 and 5.")
+        return value
+
+
 class TenantHostelSerializer(serializers.ModelSerializer):
     campus_display = serializers.CharField(source="get_campus_display", read_only=True)
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -22,6 +47,8 @@ class TenantHostelSerializer(serializers.ModelSerializer):
     booking_count = serializers.IntegerField(source="bookings.count", read_only=True)
     gallery = HostelImageSerializer(many=True, read_only=True)
     active_bookings_count = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()
+    review_count = serializers.IntegerField(source="reviews.count", read_only=True)
 
     class Meta:
         model = TenantHostel
@@ -30,6 +57,7 @@ class TenantHostelSerializer(serializers.ModelSerializer):
             "total_capacity", "base_price", "description", "image",
             "owner", "owner_username", "booking_count",
             "active_bookings_count",
+            "avg_rating", "review_count",
             # Amenities
             "has_wifi", "has_ac", "has_electricity", "has_water",
             "utilities_included", "has_security", "has_parking",
@@ -50,6 +78,11 @@ class TenantHostelSerializer(serializers.ModelSerializer):
                 PaymentStatus.PAID,
             ]
         ).count()
+
+    def get_avg_rating(self, obj):
+        from django.db.models import Avg
+        result = obj.reviews.aggregate(avg=Avg("rating"))["avg"]
+        return round(result, 1) if result else None
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -72,13 +105,17 @@ class GlobalBookingSerializer(serializers.ModelSerializer):
     hostel_name = serializers.CharField(source="hostel.name", read_only=True)
     hostel_slug = serializers.CharField(source="hostel.slug", read_only=True)
     student_username = serializers.CharField(source="student.username", read_only=True)
+    has_review = serializers.SerializerMethodField()
+
+    def get_has_review(self, obj):
+        return hasattr(obj, "review")
 
     class Meta:
         model = GlobalBooking
         fields = (
             "id", "student", "student_username", "hostel", "hostel_name", "hostel_slug",
             "room_type", "bed_space_ref", "amount", "payment_status",
-            "expiry_timestamp", "approved_at", "created_at", "payments",
+            "expiry_timestamp", "approved_at", "created_at", "payments", "has_review",
         )
         read_only_fields = (
             "id", "student", "amount", "payment_status",

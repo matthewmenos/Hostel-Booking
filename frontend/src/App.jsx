@@ -15,7 +15,9 @@ import NotificationsPage from "./pages/NotificationsPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import { NotificationProvider } from "./context/NotificationContext.jsx";
 import { ChatProvider } from "./context/ChatContext.jsx";
+import { CompareProvider } from "./context/CompareContext.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
+import ComparePage from "./pages/ComparePage.jsx";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
 import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
 
@@ -23,6 +25,7 @@ export default function App() {
   return (
     <NotificationProvider>
     <ChatProvider>
+    <CompareProvider>
     <div className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
       <Navbar />
       <main className="mx-auto max-w-6xl px-4 py-6">
@@ -121,10 +124,12 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/compare" element={<ComparePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
     </div>
+    </CompareProvider>
     </ChatProvider>
     </NotificationProvider>
   );

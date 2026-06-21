@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight,
-  Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users } from "lucide-react";
+  Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users, Star, GitCompare, Trash2 } from "lucide-react";
 import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
+import { useCompare } from "../context/CompareContext.jsx";
 import { Skeleton } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 
@@ -127,11 +128,166 @@ function HostelAmenities({ hostel }) {
   );
 }
 
+function StarRating({ value, onChange, readonly = false }) {
+  const [hovered, setHovered] = useState(null);
+  return (
+    <span className="flex items-center gap-0.5">
+      {[1,2,3,4,5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={readonly}
+          onClick={() => !readonly && onChange?.(n)}
+          onMouseEnter={() => !readonly && setHovered(n)}
+          onMouseLeave={() => !readonly && setHovered(null)}
+          className={readonly ? "cursor-default" : "cursor-pointer"}
+        >
+          <Star size={18}
+            className={n <= (hovered ?? value ?? 0)
+              ? "fill-amber-400 text-amber-400"
+              : "text-gray-300 dark:text-gray-600"}
+          />
+        </button>
+      ))}
+    </span>
+  );
+}
+
+function ReviewsSection({ slug, hostel }) {
+  const { isAuthed, user } = useAuth();
+  const { addToast } = useToast();
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [eligibleBookingId, setEligibleBookingId] = useState(null);
+  const [myReview, setMyReview] = useState(null);
+  const [form, setForm] = useState({ rating: 0, comment: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadReviews = () => {
+    hostelApi.reviews(slug).then(({ data }) => {
+      const list = data.results ?? data;
+      setReviews(list);
+      if (user) {
+        setMyReview(list.find((r) => r.student === user.id) ?? null);
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadReviews();
+    if (isAuthed && user?.role === "student") {
+      bookingApi.myBookings().then(({ data }) => {
+        const bks = data.results ?? data;
+        const eligible = bks.find((b) =>
+          b.hostel_slug === slug &&
+          (b.payment_status === "paid" || b.payment_status === "paid_awaiting_approval") &&
+          !b.has_review
+        );
+        setEligibleBookingId(eligible?.id ?? null);
+      }).catch(() => {});
+    }
+  }, [slug, isAuthed]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.rating) { addToast("error", "Please select a star rating."); return; }
+    setSubmitting(true);
+    try {
+      await hostelApi.submitReview(slug, { booking: eligibleBookingId, rating: form.rating, comment: form.comment });
+      addToast("success", "Review submitted!");
+      setForm({ rating: 0, comment: "" });
+      setEligibleBookingId(null);
+      loadReviews();
+    } catch (err) {
+      addToast("error", err.response?.data?.detail ?? "Could not submit review.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deleteReview = async (id) => {
+    try {
+      await hostelApi.deleteReview(id);
+      addToast("success", "Review deleted.");
+      loadReviews();
+    } catch { addToast("error", "Could not delete review."); }
+  };
+
+  const formatDate = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  return (
+    <div className="card p-5 space-y-5">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold">Reviews</h2>
+        {hostel.avg_rating && (
+          <span className="flex items-center gap-1.5 text-sm text-gray-500">
+            <Star size={16} className="fill-amber-400 text-amber-400" />
+            {Number(hostel.avg_rating).toFixed(1)} · {hostel.review_count} review{hostel.review_count !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {/* Submit form — only for eligible students */}
+      {isAuthed && user?.role === "student" && eligibleBookingId && !myReview && (
+        <form onSubmit={submit} className="rounded-xl border border-brand/20 bg-brand/5 p-4 space-y-3">
+          <p className="text-sm font-medium text-brand">Leave a review for your stay</p>
+          <StarRating value={form.rating} onChange={(r) => setForm((f) => ({ ...f, rating: r }))} />
+          <textarea
+            rows={3}
+            placeholder="Share your experience (optional)"
+            value={form.comment}
+            onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand dark:border-gray-600 dark:bg-gray-800"
+          />
+          <button type="submit" disabled={submitting} className="btn-primary px-4 py-2 text-sm">
+            {submitting ? "Submitting…" : "Submit Review"}
+          </button>
+        </form>
+      )}
+
+      {loading && <p className="text-sm text-gray-400">Loading reviews…</p>}
+
+      {!loading && reviews.length === 0 && (
+        <p className="text-sm text-gray-400 italic">No reviews yet. Be the first to review!</p>
+      )}
+
+      <div className="space-y-4">
+        {reviews.map((r) => (
+          <div key={r.id} className="border-b border-gray-100 dark:border-gray-700 pb-4 last:border-0 last:pb-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-brand/10 flex items-center justify-center text-brand text-xs font-bold shrink-0">
+                  {(r.student_name || r.student_username || "?")[0].toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{r.student_name || r.student_username}</p>
+                  <p className="text-xs text-gray-400">{formatDate(r.created_at)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <StarRating value={r.rating} readonly />
+                {user?.id === r.student && (
+                  <button onClick={() => deleteReview(r.id)} className="text-gray-300 hover:text-red-500 transition">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {r.comment && <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 ml-10">{r.comment}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function HostelDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { isAuthed, user } = useAuth();
   const { addToast } = useToast();
+  const { toggle, isCompared } = useCompare();
 
   const [hostel, setHostel] = useState(null);
   const [rooms, setRooms] = useState([]);
@@ -199,13 +355,25 @@ export default function HostelDetailPage() {
       <div className="card overflow-hidden">
         <GalleryCarousel hostel={hostel} />
         <div className="p-5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold">{hostel.name}</h1>
-            {hostel.is_verified && (
-              <span className="flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-                <BadgeCheck size={13} /> Verified
-              </span>
-            )}
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <h1 className="text-2xl font-bold">{hostel.name}</h1>
+              {hostel.is_verified && (
+                <span className="flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                  <BadgeCheck size={13} /> Verified
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => toggle(hostel)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition shrink-0
+                ${isCompared(slug)
+                  ? "bg-brand text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-brand hover:text-white dark:bg-gray-700 dark:text-gray-300"}`}
+            >
+              <GitCompare size={13} />
+              {isCompared(slug) ? "Pinned" : "Compare"}
+            </button>
           </div>
           <p className="text-gray-500">
             {hostel.campus_display} · {hostel.location}
@@ -299,6 +467,8 @@ export default function HostelDetailPage() {
           </p>
         )}
       </div>
+
+      <ReviewsSection slug={slug} hostel={hostel} />
     </div>
   );
 }

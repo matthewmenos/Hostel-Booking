@@ -518,6 +518,25 @@ class AdminRefundBookingView(generics.GenericAPIView):
         )
 
         try:
+            student = booking.student
+            if student.email:
+                send_mail(
+                    subject=f"Booking #{booking.pk} Refunded — {getattr(settings, 'PLATFORM_NAME', 'HostelHub Ghana')}",
+                    message=(
+                        f"Hi {student.first_name or student.username},\n\n"
+                        f"Your booking at {booking.hostel.name} (#{booking.pk}) has been refunded.\n"
+                        f"Refund amount: GHS {booking.amount}\n\n"
+                        f"Contact us at {getattr(settings, 'PLATFORM_CONTACT_EMAIL', 'support@hostelhub.gh')} with any questions.\n\n"
+                        f"— {getattr(settings, 'PLATFORM_NAME', 'HostelHub Ghana')}"
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[student.email],
+                    fail_silently=True,
+                )
+        except Exception as exc:
+            logger.warning("Failed to send refund email for booking #%s: %s", booking.pk, exc)
+
+        try:
             _remove_student_from_chat_groups(booking)
         except Exception as exc:
             logger.error("Failed to remove student from chat groups for booking #%s: %s", booking.pk, exc)
@@ -813,6 +832,27 @@ class AdminApproveBookingView(generics.GenericAPIView):
             body=f"Your booking at {booking.hostel.name} has been approved and your bed is confirmed.",
             link="/dashboard/bookings",
         )
+
+        # Email the student
+        try:
+            student = booking.student
+            if student.email:
+                send_mail(
+                    subject=f"Booking #{booking.pk} Approved — {getattr(settings, 'PLATFORM_NAME', 'HostelHub Ghana')}",
+                    message=(
+                        f"Hi {student.first_name or student.username},\n\n"
+                        f"Great news! Your booking at {booking.hostel.name} has been approved.\n"
+                        f"Booking reference: #{booking.pk}\n"
+                        f"Amount paid: GHS {booking.amount}\n\n"
+                        f"Log in to download your receipt and connect with your hostel-mates.\n\n"
+                        f"— {getattr(settings, 'PLATFORM_NAME', 'HostelHub Ghana')}"
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[student.email],
+                    fail_silently=True,
+                )
+        except Exception as exc:
+            logger.warning("Failed to send approval email for booking #%s: %s", booking.pk, exc)
 
         try:
             _add_student_to_chat_groups(booking)
@@ -1466,3 +1506,86 @@ class SendReportView(APIView):
             link="/manager/messages",
         )
         return Response({"detail": "Report submitted successfully."})
+
+
+# ---------------------------------------------------------------------------
+# Hostel Reviews
+# ---------------------------------------------------------------------------
+
+class HostelReviewListView(generics.ListAPIView):
+    """
+    GET  /hostels/<slug>/reviews/  — public list of reviews for a hostel.
+    POST /hostels/<slug>/reviews/  — authenticated student submits a review.
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_serializer_class(self):
+        from .serializers import HostelReviewSerializer
+        return HostelReviewSerializer
+
+    def get_queryset(self):
+        from .models import HostelReview
+        hostel = get_object_or_404(TenantHostel, slug=self.kwargs["slug"])
+        return HostelReview.objects.filter(hostel=hostel).select_related("student")
+
+    def post(self, request, slug):
+        from .models import HostelReview
+        from .serializers import HostelReviewSerializer
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+        if getattr(request.user, "role", None) != "student":
+            return Response({"detail": "Only students can leave reviews."}, status=status.HTTP_403_FORBIDDEN)
+
+        hostel = get_object_or_404(TenantHostel, slug=slug)
+
+        # Must have an approved booking at this hostel
+        booking = (
+            GlobalBooking.objects.filter(
+                student=request.user,
+                hostel=hostel,
+                payment_status__in=[PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID],
+            )
+            .exclude(review__isnull=False)
+            .first()
+        )
+        if not booking:
+            existing = HostelReview.objects.filter(student=request.user, hostel=hostel).first()
+            if existing:
+                return Response({"detail": "You have already reviewed this hostel."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "You can only review hostels where you have a confirmed booking."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = HostelReviewSerializer(data={
+            **request.data,
+            "hostel": hostel.pk,
+            "booking": booking.pk,
+        })
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save(student=request.user, hostel=hostel, booking=booking)
+
+        # Notify hostel manager
+        try:
+            notify(
+                hostel.owner,
+                notif_type=NotifType.MSG_BROADCAST,
+                title=f"New {review.rating}★ review for {hostel.name}",
+                body=review.comment[:200] if review.comment else "(no comment)",
+                sender=request.user,
+                link="/manager/overview",
+            )
+        except Exception:
+            pass
+
+        return Response(HostelReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+class HostelReviewDeleteView(generics.DestroyAPIView):
+    """DELETE /reviews/<pk>/ — student deletes their own review."""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from .models import HostelReview
+        return HostelReview.objects.filter(student=self.request.user)
+
+    def get_serializer_class(self):
+        from .serializers import HostelReviewSerializer
+        return HostelReviewSerializer

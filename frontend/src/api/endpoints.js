@@ -12,17 +12,20 @@ export const authApi = {
 };
 
 export const hostelApi = {
-  search:    (params) => api.get("/hostels/", { params }),
-  get:       (slug) => api.get(`/hostels/${slug}/`),
-  create:    (payload) => api.post("/hostels/", payload),
-  update:    (slug, payload) => api.patch(`/hostels/${slug}/`, payload),
-  myHostels: () => api.get("/my-hostels/"),
-  gallery:   (slug) => api.get(`/hostels/${slug}/gallery/`),
+  search:      (params) => api.get("/hostels/", { params }),
+  get:         (slug) => api.get(`/hostels/${slug}/`),
+  create:      (payload) => api.post("/hostels/", payload),
+  update:      (slug, payload) => api.patch(`/hostels/${slug}/`, payload),
+  myHostels:   () => api.get("/my-hostels/"),
+  gallery:     (slug) => api.get(`/hostels/${slug}/gallery/`),
   uploadImage: (slug, formData) =>
     api.post(`/hostels/${slug}/gallery/`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  deleteImage: (id) => api.delete(`/gallery/${id}/`),
+  deleteImage:    (id) => api.delete(`/gallery/${id}/`),
+  reviews:        (slug) => api.get(`/hostels/${slug}/reviews/`),
+  submitReview:   (slug, payload) => api.post(`/hostels/${slug}/reviews/`, payload),
+  deleteReview:   (id) => api.delete(`/reviews/${id}/`),
 };
 
 export const managerApi = {

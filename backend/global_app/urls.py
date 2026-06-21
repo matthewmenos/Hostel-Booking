@@ -38,6 +38,8 @@ from .views import (
     NotificationMarkAllReadView,
     SendNotificationView,
     SendReportView,
+    HostelReviewListView,
+    HostelReviewDeleteView,
 )
 
 router = DefaultRouter()
@@ -79,6 +81,9 @@ urlpatterns = [
     # Superadmin — verifications
     path("admin/verifications/", AdminVerificationListView.as_view(), name="admin-verifications"),
     path("admin/verifications/<int:pk>/<str:action>/", AdminVerificationDecideView.as_view(), name="admin-verification-decide"),
+    # Reviews
+    path("hostels/<slug:slug>/reviews/", HostelReviewListView.as_view(), name="hostel-reviews"),
+    path("reviews/<int:pk>/", HostelReviewDeleteView.as_view(), name="review-delete"),
     # Notifications
     path("notifications/", NotificationListView.as_view(), name="notifications"),
     path("notifications/unread-count/", NotificationUnreadCountView.as_view(), name="notifications-unread-count"),

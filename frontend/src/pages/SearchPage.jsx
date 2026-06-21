@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef } from "react";
-import { Link } from "react-router-dom";
-import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils, GitCompare } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+import { useCompare } from "../context/CompareContext.jsx";
 
 const AMENITY_FILTERS = [
   { key: "has_wifi",        label: "WiFi",        icon: Wifi },
@@ -29,6 +30,8 @@ const CAMPUS_BY_CATEGORY = {
 };
 
 export default function SearchPage() {
+  const navigate = useNavigate();
+  const { compared, toggle, isCompared } = useCompare();
   const [activeCategory, setActiveCategory] = useState(""); // "", "public", "private"
   const [activeCampus, setActiveCampus]     = useState(""); // specific university value
   const [minPrice, setMinPrice]             = useState("");
@@ -305,50 +308,73 @@ export default function SearchPage() {
       {!loading && !error && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {hostels.map((h, i) => (
-              <Link
-                key={h.slug}
-                to={`/hostels/${h.slug}`}
-                className="card overflow-hidden animate-fadeInUp"
-                style={{ animationDelay: `${i * 60}ms` }}
-              >
-                <div className="flex h-36 sm:h-40 items-center justify-center bg-brand/10 text-brand overflow-hidden">
-                  {h.image ? (
-                    <img src={h.image} alt={h.name} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
-                  ) : (
-                    <MapPin size={36} className="opacity-50" />
-                  )}
-                </div>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3 className="font-semibold text-gray-900 dark:text-gray-100">{h.name}</h3>
-                      {h.is_verified && (
-                        <BadgeCheck size={16} className="shrink-0 text-brand" title="Verified hostel" />
+            {hostels.map((h, i) => {
+              const pinned = isCompared(h.slug);
+              const canPin = pinned || compared.length < 3;
+              return (
+                <div
+                  key={h.slug}
+                  className="card overflow-hidden animate-fadeInUp flex flex-col"
+                  style={{ animationDelay: `${i * 60}ms` }}
+                >
+                  <Link to={`/hostels/${h.slug}`} className="block">
+                    <div className="flex h-36 sm:h-40 items-center justify-center bg-brand/10 text-brand overflow-hidden">
+                      {h.image ? (
+                        <img src={h.image} alt={h.name} className="h-full w-full object-cover transition-transform duration-300 hover:scale-105" />
+                      ) : (
+                        <MapPin size={36} className="opacity-50" />
                       )}
                     </div>
-                    {(() => {
-                      const free = (h.total_capacity || 0) - (h.active_bookings_count || 0);
-                      if (free <= 0) return (
-                        <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-400">Full</span>
-                      );
-                      return (
-                        <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                          {free} bed{free !== 1 ? "s" : ""} left
-                        </span>
-                      );
-                    })()}
+                  </Link>
+                  <div className="p-4 flex-1 flex flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <Link to={`/hostels/${h.slug}`}>
+                          <h3 className="font-semibold text-gray-900 dark:text-gray-100 hover:text-brand">{h.name}</h3>
+                        </Link>
+                        {h.is_verified && (
+                          <BadgeCheck size={16} className="shrink-0 text-brand" title="Verified hostel" />
+                        )}
+                      </div>
+                      {(() => {
+                        const free = (h.total_capacity || 0) - (h.active_bookings_count || 0);
+                        if (free <= 0) return (
+                          <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-400">Full</span>
+                        );
+                        return (
+                          <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            {free} bed{free !== 1 ? "s" : ""} left
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                      {h.campus_display} · {h.location}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <p className="text-lg font-bold text-brand">
+                        GHS {h.base_price}
+                        <span className="ml-1 text-xs font-normal text-gray-400">/bed</span>
+                      </p>
+                      <button
+                        onClick={() => toggle(h)}
+                        disabled={!canPin}
+                        title={pinned ? "Remove from comparison" : canPin ? "Add to comparison" : "Max 3 hostels"}
+                        className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition shrink-0
+                          ${pinned
+                            ? "bg-brand text-white"
+                            : canPin
+                              ? "bg-gray-100 text-gray-600 hover:bg-brand hover:text-white dark:bg-gray-700 dark:text-gray-300"
+                              : "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 dark:bg-gray-700"}`}
+                      >
+                        <GitCompare size={12} />
+                        {pinned ? "Pinned" : "Compare"}
+                      </button>
+                    </div>
                   </div>
-                  <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                    {h.campus_display} · {h.location}
-                  </p>
-                  <p className="mt-3 text-lg font-bold text-brand">
-                    GHS {h.base_price}
-                    <span className="ml-1 text-xs font-normal text-gray-400">/bed</span>
-                  </p>
                 </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
 
           {(prevUrl || nextUrl) && (
@@ -370,6 +396,24 @@ export default function SearchPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Floating compare bar */}
+      {compared.length > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3
+          rounded-2xl bg-gray-900 dark:bg-gray-700 px-4 py-3 shadow-2xl text-white text-sm
+          max-w-[min(480px,_calc(100vw-2rem))]">
+          <GitCompare size={16} className="shrink-0 text-brand" />
+          <span className="flex-1 min-w-0 truncate">
+            {compared.length} hostel{compared.length > 1 ? "s" : ""} selected
+          </span>
+          <button
+            onClick={() => navigate("/compare")}
+            className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold hover:bg-brand-light transition"
+          >
+            Compare
+          </button>
+        </div>
       )}
     </div>
   );

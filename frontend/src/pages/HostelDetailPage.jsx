@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight,
   Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users, Star, GitCompare, Trash2 } from "lucide-react";
@@ -6,9 +6,8 @@ import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { useCompare } from "../context/CompareContext.jsx";
-import { lazy, Suspense } from "react";
-const HostelMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.HostelMap })));
 import { resolveCoords } from "../utils/campusCoords.js";
+const HostelMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.HostelMap })));
 import { Skeleton } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 
@@ -308,21 +307,13 @@ export default function HostelDetailPage() {
       .catch(() => setStatus({ loading: false, error: "Could not load this hostel.", booking: null }));
   }, [slug]);
 
-  const book = async (bedId) => {
+  const book = (bedId) => {
     if (!isAuthed) return navigate("/login", { state: { from: { pathname: `/hostels/${slug}` } } });
     if (user?.role !== "student") {
       addToast("info", "Only students can book beds.");
       return;
     }
-    try {
-      const { data } = await bookingApi.book({ hostel: slug, bed_space_id: bedId, provider: "paystack" });
-      setStatus((s) => ({ ...s, booking: data }));
-      addToast("success", "Bed reserved! Complete your payment in the dashboard.");
-      const r = await tenantApi.rooms(slug);
-      setRooms(r.data.results ?? r.data);
-    } catch (e) {
-      addToast("error", e.response?.data?.detail ?? "Booking failed.");
-    }
+    navigate(`/book/${slug}/${bedId}`);
   };
 
   if (status.loading) return (
@@ -389,17 +380,7 @@ export default function HostelDetailPage() {
         </div>
       </div>
 
-      {status.booking && (
-        <div className="card border-green-300 bg-green-50 p-4 text-green-800">
-          <p className="font-semibold">Reservation created!</p>
-          <p className="text-sm">
-            Booking #{status.booking.booking.id} — complete payment via{" "}
-            {status.booking.payment.provider}. Track it in your dashboard.
-          </p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-3">
+<div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-semibold">Rooms &amp; availability</h2>
         {(() => {
           const types = [...new Set(rooms.map((r) => r.room_type))];

@@ -10,6 +10,7 @@ side-effect (marking the physical bed occupied).
 import io
 import json
 import logging
+import requests
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -253,19 +254,24 @@ class CreateBookingView(generics.GenericAPIView):
             # Write the authoritative booking + payment to the global DB, then
             # flag the bed occupied in the tenant DB — all within the same scope
             # so a global-DB failure still rolls back the bed lock.
+            duration_months = data.get("duration_months", 1)
+            total_amount = hostel.base_price * duration_months
+
             with transaction.atomic(using="default"):
                 booking = GlobalBooking.objects.create(
                     student=request.user,
                     hostel=hostel,
                     room_type=bed.room.room_type,
                     bed_space_ref=bed.pk,
-                    amount=hostel.base_price,
+                    amount=total_amount,
+                    check_in_date=data.get("check_in_date"),
+                    duration_months=duration_months,
                     expiry_timestamp=timezone.now() + RESERVATION_TTL,
                 )
                 payment = Payment.objects.create(
                     booking=booking,
                     provider=provider,
-                    amount=hostel.base_price,
+                    amount=total_amount,
                 )
 
             bed.is_occupied = True
@@ -604,6 +610,92 @@ class AdminVerificationDecideView(generics.GenericAPIView):
             return Response({"detail": "Invalid action."}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(ManagerVerificationAdminSerializer(verif).data)
+
+
+# ---------------------------------------------------------------------------
+# Paystack payment verification (called by frontend callback page)
+# ---------------------------------------------------------------------------
+
+class PaystackVerifyView(APIView):
+    """
+    GET /api/payments/verify/?reference=<ref>
+
+    Called by the frontend after Paystack redirects back to callback_url.
+    Hits Paystack's verify endpoint to confirm the charge, then advances
+    the booking to paid_awaiting_approval if not already done by webhook.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        reference = request.query_params.get("reference", "").strip()
+        if not reference:
+            return Response({"detail": "reference is required."}, status=400)
+
+        payment = Payment.objects.filter(reference=reference).select_related(
+            "booking__hostel__owner", "booking__student"
+        ).first()
+
+        if not payment:
+            return Response({"detail": "Payment not found."}, status=404)
+
+        if payment.booking.student != request.user:
+            return Response({"detail": "Not authorised."}, status=403)
+
+        booking = payment.booking
+
+        # Already handled (by webhook or prior verify call).
+        if booking.payment_status != PaymentStatus.PENDING:
+            return Response({
+                "status": booking.payment_status,
+                "booking": GlobalBookingSerializer(booking).data,
+            })
+
+        # If no secret key configured, accept in dev mode.
+        if not payment_gateway.PAYSTACK_SECRET:
+            payment.status = PaymentStatus.PAID_AWAITING_APPROVAL
+            payment.save(update_fields=["status"])
+            booking.payment_status = PaymentStatus.PAID_AWAITING_APPROVAL
+            booking.save(update_fields=["payment_status"])
+            _send_booking_confirmation(booking, payment)
+            return Response({
+                "status": booking.payment_status,
+                "booking": GlobalBookingSerializer(booking).data,
+            })
+
+        try:
+            resp = requests.get(
+                f"{payment_gateway.PAYSTACK_BASE}/transaction/verify/{reference}",
+                headers=payment_gateway._paystack_headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+        except Exception as exc:
+            logger.error("Paystack verify call failed: %s", exc)
+            return Response({"detail": "Could not verify with Paystack."}, status=502)
+
+        if data.get("status") != "success":
+            return Response({"status": "pending", "booking": GlobalBookingSerializer(booking).data})
+
+        payment.status = PaymentStatus.PAID_AWAITING_APPROVAL
+        payment.save(update_fields=["status"])
+        booking.payment_status = PaymentStatus.PAID_AWAITING_APPROVAL
+        booking.save(update_fields=["payment_status"])
+
+        _send_booking_confirmation(booking, payment)
+        notify(
+            booking.hostel.owner,
+            notif_type=NotifType.BOOKING_PAID,
+            title="New Booking Payment Received",
+            body=f"{booking.student.get_full_name() or booking.student.username} paid GHS {payment.amount} for a bed at {booking.hostel.name}.",
+            link="/manager/bookings",
+        )
+        logger.info("Verify: booking #%s moved to paid_awaiting_approval", booking.pk)
+
+        return Response({
+            "status": booking.payment_status,
+            "booking": GlobalBookingSerializer(booking).data,
+        })
 
 
 # ---------------------------------------------------------------------------

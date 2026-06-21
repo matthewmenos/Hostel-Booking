@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   X, ChevronRight, ChevronLeft, Check, Upload, Trash2,
@@ -8,9 +8,8 @@ import {
 import { hostelApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
-import { lazy, Suspense } from "react";
-const LocationPickerLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.LocationPicker })));
 import { CAMPUS_COORDS } from "../utils/campusCoords.js";
+const LocationPickerLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.LocationPicker })));
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils, GitCompare, Map, LayoutGrid } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
@@ -6,9 +6,8 @@ import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 import { useCompare } from "../context/CompareContext.jsx";
-import { lazy, Suspense } from "react";
-const SearchMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.SearchMap })));
 import { resolveCoords } from "../utils/campusCoords.js";
+const SearchMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.SearchMap })));
 
 const AMENITY_FILTERS = [
   { key: "has_wifi",        label: "WiFi",        icon: Wifi },

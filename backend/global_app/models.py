@@ -170,6 +170,8 @@ class GlobalBooking(models.Model):
     # Loose reference to a BedSpace row inside the hostel's tenant database.
     bed_space_ref = models.IntegerField(null=True, blank=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    check_in_date = models.DateField(null=True, blank=True)
+    duration_months = models.PositiveSmallIntegerField(default=1)
     payment_status = models.CharField(
         max_length=30, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
     )

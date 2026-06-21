@@ -29,6 +29,7 @@ from .views import (
     AdminSetRecipientView,
     AdminSettingsView,
     PaystackWebhookView,
+    PaystackVerifyView,
     HostelImageListView,
     HostelImageDeleteView,
     BookingReceiptView,
@@ -54,6 +55,8 @@ urlpatterns = [
     path("bookings/<int:pk>/receipt/", BookingReceiptView.as_view(), name="booking-receipt"),
     # Paystack webhook (no JWT — verified by HMAC signature)
     path("webhooks/paystack/", PaystackWebhookView.as_view(), name="paystack-webhook"),
+    # Paystack post-payment verification (JWT required)
+    path("payments/verify/", PaystackVerifyView.as_view(), name="paystack-verify"),
     # Hostel gallery
     path("hostels/<slug:slug>/gallery/", HostelImageListView.as_view(), name="hostel-gallery"),
     path("gallery/<int:pk>/", HostelImageDeleteView.as_view(), name="hostel-gallery-delete"),

@@ -57,6 +57,7 @@ export const bookingApi = {
   managerBookings:(hostelSlug) =>
     api.get("/manager/bookings/", { params: hostelSlug ? { hostel: hostelSlug } : {} }),
   managerAnalytics: () => api.get("/manager/analytics/"),
+  verifyPayment:  (reference) => api.get("/payments/verify/", { params: { reference } }),
 };
 
 // Tenant-scoped: pass { tenant: slug } so the X-Tenant-Slug header is set.

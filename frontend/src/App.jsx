@@ -18,6 +18,8 @@ import { ChatProvider } from "./context/ChatContext.jsx";
 import { CompareProvider } from "./context/CompareContext.jsx";
 import ChatPage from "./pages/ChatPage.jsx";
 import ComparePage from "./pages/ComparePage.jsx";
+import BookingPage from "./pages/BookingPage.jsx";
+import PaymentCallbackPage from "./pages/PaymentCallbackPage.jsx";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
 import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
 
@@ -125,6 +127,22 @@ export default function App() {
             }
           />
           <Route path="/compare" element={<ComparePage />} />
+          <Route
+            path="/payment/callback"
+            element={
+              <ProtectedRoute role="student">
+                <PaymentCallbackPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/book/:slug/:bedId"
+            element={
+              <ProtectedRoute role="student">
+                <BookingPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>

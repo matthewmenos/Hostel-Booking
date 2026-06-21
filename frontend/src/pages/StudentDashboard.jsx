@@ -103,6 +103,13 @@ function BookingCard({ booking: b, cancelTarget, setCancelTarget, confirmCancel 
           <p className="text-sm text-gray-500 break-words">
             {b.room_type} · GHS {b.amount} · Booking #{b.id}
           </p>
+          {(b.check_in_date || b.duration_months) && (
+            <p className="text-xs text-gray-400">
+              {b.check_in_date && <>Check-in: {new Date(b.check_in_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</>}
+              {b.check_in_date && b.duration_months && " · "}
+              {b.duration_months && <>{b.duration_months} month{b.duration_months > 1 ? "s" : ""}</>}
+            </p>
+          )}
           {payRef && <p className="text-xs text-gray-400 break-all">Ref: {payRef}</p>}
         </div>
         <span className={`flex shrink-0 items-center gap-1 text-sm font-medium ${ui.cls}`}>

@@ -67,11 +67,15 @@ def _initiate_paystack(payment: Payment) -> dict:
     booking = payment.booking
     student = booking.student
 
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    callback_url = f"{frontend_url}/payment/callback?reference={reference}"
+
     payload = {
         "email": student.email,
-        "amount": int(payment.amount * 100),  # Paystack expects kobo (pesewas)
+        "amount": int(payment.amount * 100),  # Paystack expects pesewas
         "reference": reference,
         "currency": "GHS",
+        "callback_url": callback_url,
         "metadata": {
             "booking_id": booking.pk,
             "payment_id": payment.pk,

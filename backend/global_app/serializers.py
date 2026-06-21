@@ -116,8 +116,8 @@ class GlobalBookingSerializer(serializers.ModelSerializer):
         model = GlobalBooking
         fields = (
             "id", "student", "student_username", "hostel", "hostel_name", "hostel_slug",
-            "room_type", "bed_space_ref", "amount", "payment_status",
-            "expiry_timestamp", "approved_at", "created_at", "payments", "has_review",
+            "room_type", "bed_space_ref", "amount", "check_in_date", "duration_months",
+            "payment_status", "expiry_timestamp", "approved_at", "created_at", "payments", "has_review",
         )
         read_only_fields = (
             "id", "student", "amount", "payment_status",
@@ -135,6 +135,8 @@ class CreateBookingSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(
         choices=["paystack", "hubtel", "manual"], default="paystack"
     )
+    check_in_date = serializers.DateField()
+    duration_months = serializers.IntegerField(min_value=1, max_value=12)
 
 
 class AdminUserSerializer(serializers.ModelSerializer):

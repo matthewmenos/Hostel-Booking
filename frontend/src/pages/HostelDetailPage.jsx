@@ -6,6 +6,9 @@ import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { useCompare } from "../context/CompareContext.jsx";
+import { lazy, Suspense } from "react";
+const HostelMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.HostelMap })));
+import { resolveCoords } from "../utils/campusCoords.js";
 import { Skeleton } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 
@@ -467,6 +470,28 @@ export default function HostelDetailPage() {
           </p>
         )}
       </div>
+
+      {/* Map */}
+      {(() => {
+        const { lat, lng } = resolveCoords(hostel);
+        return (
+          <div className="card overflow-hidden p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <MapPin size={16} className="text-brand shrink-0" />
+              <h2 className="font-semibold">Location</h2>
+              <span className="text-sm text-gray-400">{hostel.location}</span>
+            </div>
+            <Suspense fallback={<div className="h-[280px] rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />}>
+              <HostelMapLazy hostel={hostel} lat={lat} lng={lng} height="280px" />
+            </Suspense>
+            <p className="text-xs text-gray-400">
+              {hostel.latitude != null
+                ? "Exact location set by the hostel manager."
+                : `Approximate — pin shows the ${hostel.campus_display} campus area.`}
+            </p>
+          </div>
+        );
+      })()}
 
       <ReviewsSection slug={slug} hostel={hostel} />
     </div>

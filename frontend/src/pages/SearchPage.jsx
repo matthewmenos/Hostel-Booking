@@ -1,11 +1,14 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils, GitCompare } from "lucide-react";
+import { MapPin, SlidersHorizontal, BadgeCheck, X, ChevronDown, Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils, GitCompare, Map, LayoutGrid } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { SkeletonCard } from "../components/Skeleton.jsx";
 import ErrorPage from "./ErrorPage.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
 import { useCompare } from "../context/CompareContext.jsx";
+import { lazy, Suspense } from "react";
+const SearchMapLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.SearchMap })));
+import { resolveCoords } from "../utils/campusCoords.js";
 
 const AMENITY_FILTERS = [
   { key: "has_wifi",        label: "WiFi",        icon: Wifi },
@@ -32,6 +35,8 @@ const CAMPUS_BY_CATEGORY = {
 export default function SearchPage() {
   const navigate = useNavigate();
   const { compared, toggle, isCompared } = useCompare();
+  const [viewMode, setViewMode] = useState("grid"); // "grid" | "map"
+  const [hoveredSlug, setHoveredSlug] = useState(null);
   const [activeCategory, setActiveCategory] = useState(""); // "", "public", "private"
   const [activeCampus, setActiveCampus]     = useState(""); // specific university value
   const [minPrice, setMinPrice]             = useState("");
@@ -271,14 +276,36 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {/* Count label */}
+      {/* Count label + view toggle */}
       {!loading && !error && count !== null && hostels.length > 0 && (
-        <p className="mb-3 text-sm text-gray-400 dark:text-gray-500">
-          {count} hostel{count !== 1 ? "s" : ""} found
-          {activeCampus
-            ? ` · ${[...PUBLIC_UNIVERSITIES, ...PRIVATE_UNIVERSITIES].find(u => u.value === activeCampus)?.label ?? activeCampus}`
-            : activeCategory ? ` · ${activeCategory} universities` : ""}
-        </p>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-sm text-gray-400 dark:text-gray-500">
+            {count} hostel{count !== 1 ? "s" : ""} found
+            {activeCampus
+              ? ` · ${[...PUBLIC_UNIVERSITIES, ...PRIVATE_UNIVERSITIES].find(u => u.value === activeCampus)?.label ?? activeCampus}`
+              : activeCategory ? ` · ${activeCategory} universities` : ""}
+          </p>
+          <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0">
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition
+                ${viewMode === "grid"
+                  ? "bg-brand text-white"
+                  : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"}`}
+            >
+              <LayoutGrid size={13} /> Grid
+            </button>
+            <button
+              onClick={() => setViewMode("map")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-l border-gray-200 dark:border-gray-700
+                ${viewMode === "map"
+                  ? "bg-brand text-white"
+                  : "text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"}`}
+            >
+              <Map size={13} /> Map
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Loading skeletons */}
@@ -304,10 +331,22 @@ export default function SearchPage() {
         </div>
       )}
 
-      {/* Hostel grid */}
+      {/* Hostel grid / map */}
       {!loading && !error && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Map view */}
+          {viewMode === "map" && hostels.length > 0 && (() => {
+            const hostelCoords = hostels.map((h) => ({ hostel: h, ...resolveCoords(h) }));
+            return (
+              <div className="mb-4">
+                <Suspense fallback={<div className="h-[500px] rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />}>
+                  <SearchMapLazy hostelCoords={hostelCoords} activeSlug={hoveredSlug} height="500px" />
+                </Suspense>
+              </div>
+            );
+          })()}
+
+          <div className={viewMode === "map" ? "hidden" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"}>
             {hostels.map((h, i) => {
               const pinned = isCompared(h.slug);
               const canPin = pinned || compared.length < 3;
@@ -316,6 +355,8 @@ export default function SearchPage() {
                   key={h.slug}
                   className="card overflow-hidden animate-fadeInUp flex flex-col"
                   style={{ animationDelay: `${i * 60}ms` }}
+                  onMouseEnter={() => setHoveredSlug(h.slug)}
+                  onMouseLeave={() => setHoveredSlug(null)}
                 >
                   <Link to={`/hostels/${h.slug}`} className="block">
                     <div className="flex h-36 sm:h-40 items-center justify-center bg-brand/10 text-brand overflow-hidden">

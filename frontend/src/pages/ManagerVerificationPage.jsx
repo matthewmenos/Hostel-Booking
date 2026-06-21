@@ -204,16 +204,20 @@ function Step0({ form, setForm }) {
 
 // ── Live ID Capture (camera-only) ─────────────────────────────────────────────
 
-function LiveIdCapture({ label, file, onChange }) {
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const rafRef    = useRef(null);
+// COUNTDOWN_SECS: time the user has to position the card before we grab the
+// sharpest frame seen so far.  3 s is long enough to steady the hand.
+const ID_COUNTDOWN_SECS = 3;
 
-  const [camState, setCamState]         = useState("idle");   // idle|starting|live|captured|denied
-  const [sharp, setSharp]               = useState(false);
-  const [autoCapturing, setAutoCapturing] = useState(false);
-  const [sharpTicks, setSharpTicks]     = useState(0);
+function LiveIdCapture({ label, file, onChange }) {
+  const videoRef      = useRef(null);
+  const canvasRef     = useRef(null);
+  const bestCanvasRef = useRef(null); // holds the sharpest frame seen
+  const streamRef     = useRef(null);
+  const rafRef        = useRef(null);
+
+  const [camState, setCamState]     = useState("idle"); // idle|starting|live|capturing|captured|denied
+  const [countdown, setCountdown]   = useState(ID_COUNTDOWN_SECS);
+  const [bestScore, setBestScore]   = useState(0);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -225,51 +229,65 @@ function LiveIdCapture({ label, file, onChange }) {
 
   const openCamera = async () => {
     setCamState("starting");
-    setSharp(false);
-    setSharpTicks(0);
+    setCountdown(ID_COUNTDOWN_SECS);
+    setBestScore(0);
+
+    // Ensure best-frame canvas exists
+    if (!bestCanvasRef.current) {
+      bestCanvasRef.current = document.createElement("canvas");
+    }
+
     try {
       const stream = await startCamera(videoRef.current, "environment");
       streamRef.current = stream;
       setCamState("live");
 
-      let ticks = 0;
-      let steadyTicks = 0;
-      const STEADY_NEEDED = 45; // ~1.5s at 30fps before auto-capture
+      let currentBestScore = 0;
+      let secondsLeft      = ID_COUNTDOWN_SECS;
+      let lastTick         = performance.now();
 
-      const check = () => {
+      const check = (now) => {
         if (!videoRef.current || videoRef.current.readyState < 2) {
           rafRef.current = requestAnimationFrame(check);
           return;
         }
+
+        // Capture current frame into the working canvas
         captureFrame(videoRef.current, canvasRef.current);
-        const score    = blurScore(canvasRef.current);
-        const isSharp  = score > 80;
-        ticks++;
+        const score = blurScore(canvasRef.current);
 
-        setSharp(isSharp);
-
-        if (isSharp) {
-          steadyTicks++;
-          setSharpTicks(steadyTicks);
-        } else {
-          steadyTicks = 0;
-          setSharpTicks(0);
+        // Keep a copy of the sharpest frame
+        if (score > currentBestScore) {
+          currentBestScore = score;
+          setBestScore(score);
+          const bc = bestCanvasRef.current;
+          bc.width  = canvasRef.current.width;
+          bc.height = canvasRef.current.height;
+          bc.getContext("2d").drawImage(canvasRef.current, 0, 0);
         }
 
-        if (steadyTicks >= STEADY_NEEDED) {
-          setAutoCapturing(true);
-          captureFrame(videoRef.current, canvasRef.current);
-          canvasToFile(canvasRef.current, `${label.replace(/\s+/g, "_")}.jpg`).then((f) => {
-            onChange(f);
-            stopCamera();
-            setCamState("captured");
-            setAutoCapturing(false);
-          });
-          return;
+        // Count down in whole seconds
+        const elapsed = (now - lastTick) / 1000;
+        if (elapsed >= 1) {
+          lastTick = now;
+          secondsLeft = Math.max(0, secondsLeft - 1);
+          setCountdown(secondsLeft);
+
+          if (secondsLeft === 0) {
+            // Grab the best frame we collected
+            setCamState("capturing");
+            canvasToFile(bestCanvasRef.current, `${label.replace(/\s+/g, "_")}.jpg`).then((f) => {
+              onChange(f);
+              stopCamera();
+              setCamState("captured");
+            });
+            return;
+          }
         }
 
         rafRef.current = requestAnimationFrame(check);
       };
+
       rafRef.current = requestAnimationFrame(check);
     } catch {
       setCamState("denied");
@@ -279,12 +297,13 @@ function LiveIdCapture({ label, file, onChange }) {
   const retake = () => {
     onChange(null);
     setCamState("idle");
-    setSharp(false);
-    setSharpTicks(0);
+    setCountdown(ID_COUNTDOWN_SECS);
+    setBestScore(0);
   };
 
   const preview = file ? URL.createObjectURL(file) : null;
-  const progress = Math.min(100, Math.round((sharpTicks / 45) * 100));
+  // Rough quality indicator based on blur score (0-100 display scale)
+  const qualityPct = Math.min(100, Math.round(bestScore / 0.5));
 
   return (
     <div className="space-y-2">
@@ -300,45 +319,66 @@ function LiveIdCapture({ label, file, onChange }) {
         >
           <Camera size={28} className="text-brand/70" />
           <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Open Camera</p>
-          <p className="text-xs text-gray-400">Auto-captures when card is clear &amp; steady</p>
+          <p className="text-xs text-gray-400">Hold card steady — auto-captures in {ID_COUNTDOWN_SECS}s</p>
         </button>
       )}
 
-      {(camState === "starting" || camState === "live") && (
+      {(camState === "starting" || camState === "live" || camState === "capturing") && (
         <div className="relative rounded-xl overflow-hidden bg-black">
           <video ref={videoRef} muted playsInline className="w-full rounded-xl" />
 
           {/* Card guide overlay */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div
-              className={`border-4 rounded-lg transition-colors duration-300
-                ${sharp ? "border-green-400" : "border-white/60"}`}
-              style={{ width: "85%", height: "55%", boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }}
+              className="border-4 rounded-lg transition-colors duration-500"
+              style={{
+                width:     "85%",
+                height:    "55%",
+                borderColor: countdown <= 1 ? "#4ade80" : "rgba(255,255,255,0.7)",
+                boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
+              }}
             />
           </div>
 
-          {/* Progress arc when sharp */}
-          {sharp && !autoCapturing && (
+          {/* Countdown ring */}
+          {camState === "live" && (
             <div className="absolute top-2 right-2">
-              <svg width="40" height="40" className="-rotate-90">
-                <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
+              <svg width="44" height="44" className="-rotate-90">
+                <circle cx="22" cy="22" r="18" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.2)" strokeWidth="3" />
                 <circle
-                  cx="20" cy="20" r="16" fill="none"
-                  stroke="#4ade80" strokeWidth="3"
-                  strokeDasharray={`${2 * Math.PI * 16}`}
-                  strokeDashoffset={`${2 * Math.PI * 16 * (1 - progress / 100)}`}
-                  style={{ transition: "stroke-dashoffset 0.1s linear" }}
+                  cx="22" cy="22" r="18"
+                  fill="none"
+                  stroke={countdown <= 1 ? "#4ade80" : "#a5b4fc"}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 18}`}
+                  strokeDashoffset={`${2 * Math.PI * 18 * (countdown / ID_COUNTDOWN_SECS)}`}
+                  style={{ transition: "stroke-dashoffset 0.9s linear, stroke 0.3s" }}
                 />
+                <text
+                  x="22" y="22"
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill="white"
+                  fontSize="13"
+                  fontWeight="bold"
+                  style={{ transform: "rotate(90deg)", transformOrigin: "22px 22px" }}
+                >
+                  {countdown}
+                </text>
               </svg>
             </div>
           )}
 
+          {/* Status label */}
           <div className="absolute bottom-3 left-0 right-0 flex flex-col items-center gap-1">
-            {autoCapturing
-              ? <span className="rounded-full bg-green-500 px-3 py-1 text-xs text-white font-semibold animate-pulse">Capturing…</span>
-              : sharp
-                ? <span className="rounded-full bg-green-500/80 px-3 py-1 text-xs text-white">Hold still…</span>
-                : <span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">Fit the card inside the frame</span>
+            {camState === "capturing"
+              ? <span className="rounded-full bg-green-500 px-3 py-1 text-xs text-white font-semibold animate-pulse">Saving best frame…</span>
+              : camState === "live"
+                ? <span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">
+                    Fit the card in the frame — capturing in {countdown}s
+                  </span>
+                : null
             }
           </div>
 

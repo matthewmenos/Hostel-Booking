@@ -115,6 +115,10 @@ class TenantHostel(models.Model):
         default=1, help_text="Minimum stay in months"
     )
 
+    # Map coordinates — optional, set by manager when listing
+    latitude  = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

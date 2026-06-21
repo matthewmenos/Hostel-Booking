@@ -3,11 +3,14 @@ import { useNavigate } from "react-router-dom";
 import {
   X, ChevronRight, ChevronLeft, Check, Upload, Trash2,
   Wifi, Snowflake, Zap, Droplets, Shield, Car, WashingMachine, Utensils,
-  Landmark, GraduationCap, School,
+  Landmark, GraduationCap, School, MapPin,
 } from "lucide-react";
 import { hostelApi } from "../api/endpoints.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { PUBLIC_UNIVERSITIES, PRIVATE_UNIVERSITIES } from "../utils/universities.js";
+import { lazy, Suspense } from "react";
+const LocationPickerLazy = lazy(() => import("../components/HostelMap.jsx").then((m) => ({ default: m.LocationPicker })));
+import { CAMPUS_COORDS } from "../utils/campusCoords.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +53,7 @@ const EMPTY_FORM = {
   has_wifi: false, has_ac: false, has_electricity: true,
   has_water: true, has_security: false, has_parking: false,
   has_laundry: false, has_kitchen: false,
+  latitude: null, longitude: null,
 };
 
 // ── Step bar ──────────────────────────────────────────────────────────────────
@@ -278,7 +282,7 @@ export default function NewHostelPage() {
     try {
       const fd = new FormData();
       Object.entries(form).forEach(([k, v]) => {
-        // Send booleans as lowercase strings — DRF BooleanField accepts "true"/"false"
+        if (v === null || v === undefined) return; // skip unset optional fields
         fd.append(k, typeof v === "boolean" ? String(v) : v);
       });
       fd.append("image", photos[0]); // cover
@@ -360,7 +364,7 @@ export default function NewHostelPage() {
 
           {/* Animated step content */}
           <div key={animKey} style={slideStyle}>
-            {step === 0 && <Step0 form={form} set={set} errors={errors} campusCat={campusCat} setCampusCat={setCampusCat} />}
+            {step === 0 && <Step0 form={form} set={set} errors={errors} campusCat={campusCat} setCampusCat={setCampusCat} onCoords={(lat, lng) => { set("latitude", lat); set("longitude", lng); }} />}
             {step === 1 && <Step1 form={form} set={set} />}
             {step === 2 && <Step2 photos={photos} setPhotos={setPhotos} />}
           </div>
@@ -419,7 +423,7 @@ export default function NewHostelPage() {
 
 // ── Step 0: Basic Info ────────────────────────────────────────────────────────
 
-function Step0({ form, set, errors, campusCat, setCampusCat }) {
+function Step0({ form, set, errors, campusCat, setCampusCat, onCoords }) {
   return (
     <div className="space-y-5">
       <div>
@@ -482,6 +486,35 @@ function Step0({ form, set, errors, campusCat, setCampusCat }) {
             value={form.location} onChange={(e) => set("location", e.target.value)} />
           {errors.location && <p className="mt-1 text-xs text-red-500">{errors.location}</p>}
         </div>
+      </div>
+
+      {/* Map pin */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <label className="label mb-0">Pin exact location on map</label>
+          <span className="text-xs text-gray-400">(optional — helps students find you)</span>
+        </div>
+        {form.latitude != null
+          ? <p className="text-xs text-green-600 flex items-center gap-1">
+              <MapPin size={12} /> {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
+              <button type="button" className="ml-2 text-gray-400 hover:text-red-500 underline"
+                onClick={() => { set("latitude", null); set("longitude", null); }}>
+                Clear
+              </button>
+            </p>
+          : <p className="text-xs text-gray-400">Click on the map to drop a pin</p>
+        }
+        <Suspense fallback={<div className="h-[300px] rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />}>
+          <LocationPickerLazy
+            lat={form.latitude}
+            lng={form.longitude}
+            onChange={({ lat, lng }) => onCoords(lat, lng)}
+            defaultCenter={(() => {
+              const c = CAMPUS_COORDS[form.campus];
+              return c ? [c.lat, c.lng] : [7.9465, -1.0232];
+            })()}
+          />
+        </Suspense>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

@@ -64,6 +64,8 @@ class TenantHostelSerializer(serializers.ModelSerializer):
             "has_laundry", "has_kitchen",
             # Policy
             "gender_policy", "min_stay_months",
+            # Map
+            "latitude", "longitude",
             "is_active", "is_verified", "gallery", "created_at",
         )
         read_only_fields = ("id", "owner", "created_at")

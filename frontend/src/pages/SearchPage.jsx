@@ -38,17 +38,19 @@ function UniversityFilterGroup({ activeCampus, onChange }) {
 
   return (
     <div>
-      <p className="mb-2 text-xs font-medium text-white/80">University</p>
+      <p className="mb-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300">University</p>
 
-      {/* Public / Private tab toggle */}
-      <div className="mb-3 flex rounded-lg overflow-hidden border border-white/25 w-fit">
+      {/* Public / Private segmented toggle */}
+      <div className="mb-3 flex rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 w-fit">
         {[{ v: "public", label: "Public" }, { v: "private", label: "Private" }].map(({ v, label }) => (
           <button
             key={v}
             type="button"
             onClick={() => setTab(v)}
             className={`px-4 py-1.5 text-xs font-medium transition
-              ${tab === v ? "bg-white text-brand" : "text-white/70 hover:text-white hover:bg-white/15"}`}
+              ${tab === v
+                ? "bg-brand text-white"
+                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"}`}
           >
             {label}
           </button>
@@ -56,12 +58,14 @@ function UniversityFilterGroup({ activeCampus, onChange }) {
       </div>
 
       {/* University pills */}
-      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
         <button
           type="button"
           onClick={() => onChange("")}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition
-            ${activeCampus === "" ? "bg-white text-brand shadow-sm" : "bg-white/15 text-white hover:bg-white/25"}`}
+          className={`rounded-full px-3 py-1 text-xs font-medium border transition
+            ${activeCampus === ""
+              ? "bg-brand text-white border-brand"
+              : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand hover:text-brand"}`}
         >
           All
         </button>
@@ -70,8 +74,10 @@ function UniversityFilterGroup({ activeCampus, onChange }) {
             key={u.value}
             type="button"
             onClick={() => onChange(activeCampus === u.value ? "" : u.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition text-left
-              ${activeCampus === u.value ? "bg-white text-brand shadow-sm" : "bg-white/15 text-white hover:bg-white/25"}`}
+            className={`rounded-full px-3 py-1 text-xs font-medium border transition
+              ${activeCampus === u.value
+                ? "bg-brand text-white border-brand"
+                : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand hover:text-brand"}`}
           >
             {u.label}
           </button>
@@ -251,57 +257,66 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Expanded filters */}
-        {showFilters && (
-          <div className="mt-4 max-w-xl rounded-xl border border-white/20 bg-white/10 p-4 space-y-4 backdrop-blur">
-            {/* University */}
-            <UniversityFilterGroup activeCampus={activeCampus} onChange={(v) => { setActiveCampus(v); triggerLoad(v); }} />
+      </section>
 
-            {/* Price range */}
-            <div>
-              <p className="mb-2 text-xs font-medium text-white/80">Price range (GHS / month)</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <input
-                    type="number" min="0"
-                    className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
-                    placeholder="Min"
-                    value={minPrice}
-                    onChange={(e) => handlePriceChange("min", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <input
-                    type="number" min="0"
-                    className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
-                    placeholder="Max"
-                    value={maxPrice}
-                    onChange={(e) => handlePriceChange("max", e.target.value)}
-                  />
-                </div>
+      {/* Expanded filters — outside section so overflow-hidden doesn't clip it */}
+      {showFilters && (
+        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-5 shadow-sm">
+          {/* University */}
+          <UniversityFilterGroup activeCampus={activeCampus} onChange={(v) => { setActiveCampus(v); triggerLoad(v); }} />
+
+          <div className="border-t border-gray-100 dark:border-gray-800" />
+
+          {/* Price range */}
+          <div>
+            <p className="mb-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300">Price range <span className="font-normal text-gray-400">(GHS / month)</span></p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Min</label>
+                <input
+                  type="number" min="0"
+                  className="input"
+                  placeholder="0"
+                  value={minPrice}
+                  onChange={(e) => handlePriceChange("min", e.target.value)}
+                />
               </div>
-            </div>
-
-            {/* Amenities */}
-            <div>
-              <p className="mb-2 text-xs font-medium text-white/80">Amenities</p>
-              <div className="flex flex-wrap gap-2">
-                {AMENITY_FILTERS.map(({ key, label, icon: Icon }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => toggleAmenity(key)}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition
-                      ${amenities[key] ? "bg-white text-brand shadow-sm" : "bg-white/15 text-white hover:bg-white/25"}`}
-                  >
-                    <Icon size={12} /> {label}
-                  </button>
-                ))}
+              <div>
+                <label className="label">Max</label>
+                <input
+                  type="number" min="0"
+                  className="input"
+                  placeholder="Any"
+                  value={maxPrice}
+                  onChange={(e) => handlePriceChange("max", e.target.value)}
+                />
               </div>
             </div>
           </div>
-        )}
-      </section>
+
+          <div className="border-t border-gray-100 dark:border-gray-800" />
+
+          {/* Amenities */}
+          <div>
+            <p className="mb-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300">Amenities</p>
+            <div className="flex flex-wrap gap-2">
+              {AMENITY_FILTERS.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleAmenity(key)}
+                  className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium border transition
+                    ${amenities[key]
+                      ? "bg-brand text-white border-brand"
+                      : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:border-brand hover:text-brand"}`}
+                >
+                  <Icon size={12} /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Results toolbar ── */}
       {!loading && !error && count !== null && (

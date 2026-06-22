@@ -279,6 +279,8 @@ class NotifType(models.TextChoices):
     HOSTEL_DEACTIVATED= "hostel_deactivated","Hostel Deactivated"
     VERIF_APPROVED    = "verif_approved",    "Verification Approved"
     VERIF_REJECTED    = "verif_rejected",    "Verification Rejected"
+    WAITLIST_NOTIFIED = "waitlist_notified", "Waitlist — Bed Available"
+    RENEWAL_REMINDER  = "renewal_reminder",  "Renewal Reminder"
 
 
 class Notification(models.Model):
@@ -422,5 +424,110 @@ class HostelReview(models.Model):
         ordering = ("-created_at",)
         unique_together = ("hostel", "student")  # one review per hostel per student
 
+
+# ---------------------------------------------------------------------------
+# Waitlist
+# ---------------------------------------------------------------------------
+
+class WaitlistEntry(models.Model):
+    """A student queued for a specific room type at a hostel."""
+    student    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="waitlist_entries", on_delete=models.CASCADE
+    )
+    hostel     = models.ForeignKey(
+        TenantHostel, related_name="waitlist_entries", on_delete=models.CASCADE
+    )
+    room_type  = models.CharField(max_length=20)
+    position   = models.PositiveIntegerField(default=0)
+    # Set when we notify the student that a bed is available; they have 24 h.
+    notified_at = models.DateTimeField(null=True, blank=True)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("hostel", "room_type", "position")
+        unique_together = ("student", "hostel", "room_type")
+        indexes = [models.Index(fields=["hostel", "room_type", "position"])]
+
+    def __str__(self):
+        return f"Waitlist #{self.position} — {self.student.username} @ {self.hostel.slug} ({self.room_type})"
+
+
+# ---------------------------------------------------------------------------
+# Roommate Matching
+# ---------------------------------------------------------------------------
+
+class SleepSchedule(models.TextChoices):
+    EARLY   = "early",   "Early bird (before 10 pm)"
+    NORMAL  = "normal",  "Normal (10 pm – midnight)"
+    NIGHT   = "night",   "Night owl (after midnight)"
+
+class StudyHabit(models.TextChoices):
+    QUIET   = "quiet",   "I study in silence"
+    MUSIC   = "music",   "I study with music/low noise"
+    SOCIAL  = "social",  "I prefer group study"
+
+class RoommateProfile(models.Model):
+    """Optional profile a student fills in to enable roommate matching."""
+    student        = models.OneToOneField(
+        settings.AUTH_USER_MODEL, related_name="roommate_profile", on_delete=models.CASCADE
+    )
+    hostel         = models.ForeignKey(
+        TenantHostel, related_name="roommate_profiles", on_delete=models.CASCADE
+    )
+    course         = models.CharField(max_length=200, blank=True)
+    year_of_study  = models.PositiveSmallIntegerField(null=True, blank=True)
+    sleep_schedule = models.CharField(max_length=10, choices=SleepSchedule.choices, blank=True)
+    study_habit    = models.CharField(max_length=10, choices=StudyHabit.choices, blank=True)
+    is_smoker      = models.BooleanField(default=False)
+    bio            = models.TextField(max_length=300, blank=True)
+    is_visible     = models.BooleanField(default=True, help_text="Show profile to other students at this hostel")
+    created_at     = models.DateTimeField(auto_now_add=True)
+    updated_at     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"RoommateProfile — {self.student.username} @ {self.hostel.slug}"
+
+
+class RoommateRequest(models.Model):
+    """A student sending a match request to another student."""
+    sender    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="sent_roommate_requests", on_delete=models.CASCADE
+    )
+    receiver  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="received_roommate_requests", on_delete=models.CASCADE
+    )
+    hostel    = models.ForeignKey(TenantHostel, on_delete=models.CASCADE)
+    status    = models.CharField(
+        max_length=10,
+        choices=[("pending","Pending"),("accepted","Accepted"),("declined","Declined")],
+        default="pending"
+    )
+    message   = models.TextField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        unique_together = ("sender", "receiver", "hostel")
+
     def __str__(self):
         return f"Review by {self.student.username} for {self.hostel.name} ({self.rating}★)"
+
+
+# ── Virtual hostel tour: room-level photos ────────────────────────────────────
+
+class RoomPhoto(models.Model):
+    hostel     = models.ForeignKey(TenantHostel, related_name="room_photos", on_delete=models.CASCADE)
+    room_type  = models.CharField(max_length=20)
+    image      = models.ImageField(upload_to="room_photos/%Y/%m/")
+    caption    = models.CharField(max_length=200, blank=True)
+    order      = models.PositiveSmallIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("hostel", "room_type", "order", "id")
+
+    def __str__(self):
+        return f"{self.hostel.name} – {self.room_type} photo #{self.pk}"

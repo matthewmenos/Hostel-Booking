@@ -30,6 +30,16 @@ from .views import (
     AdminSettingsView,
     PaystackWebhookView,
     PaystackVerifyView,
+    WaitlistView,
+    WaitlistLeaveView,
+    ManagerWaitlistView,
+    RoommateProfileView,
+    RoommateListView,
+    RoommateRequestView,
+    RoommateRequestDecideView,
+    RenewalEligibleView,
+    RoomPhotoListView,
+    RoomPhotoDeleteView,
     HostelImageListView,
     HostelImageDeleteView,
     BookingReceiptView,
@@ -60,6 +70,9 @@ urlpatterns = [
     # Hostel gallery
     path("hostels/<slug:slug>/gallery/", HostelImageListView.as_view(), name="hostel-gallery"),
     path("gallery/<int:pk>/", HostelImageDeleteView.as_view(), name="hostel-gallery-delete"),
+    # Room-level photos (virtual tour)
+    path("hostels/<slug:slug>/room-photos/", RoomPhotoListView.as_view(), name="room-photos"),
+    path("room-photos/<int:pk>/", RoomPhotoDeleteView.as_view(), name="room-photo-delete"),
     # Manager
     path("manager/bookings/", ManagerBookingsView.as_view(), name="manager-bookings"),
     path("manager/analytics/", ManagerAnalyticsView.as_view(), name="manager-analytics"),
@@ -94,6 +107,17 @@ urlpatterns = [
     path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view(), name="notification-read"),
     path("notifications/send/", SendNotificationView.as_view(), name="notifications-send"),
     path("notifications/report/", SendReportView.as_view(), name="notifications-report"),
+    # Waitlist
+    path("waitlist/", WaitlistView.as_view(), name="waitlist"),
+    path("waitlist/<slug:hostel_slug>/<str:room_type>/", WaitlistLeaveView.as_view(), name="waitlist-leave"),
+    path("manager/waitlist/", ManagerWaitlistView.as_view(), name="manager-waitlist"),
+    # Roommate matching
+    path("roommates/", RoommateListView.as_view(), name="roommate-list"),
+    path("roommates/profile/", RoommateProfileView.as_view(), name="roommate-profile"),
+    path("roommates/requests/", RoommateRequestView.as_view(), name="roommate-requests"),
+    path("roommates/requests/<int:pk>/<str:action>/", RoommateRequestDecideView.as_view(), name="roommate-request-decide"),
+    # Renewal
+    path("bookings/renewal-eligible/", RenewalEligibleView.as_view(), name="renewal-eligible"),
     # Superadmin — bookings
     path("admin/bookings/", AdminBookingsView.as_view(), name="admin-bookings"),
     path("admin/bookings/<int:pk>/refund/", AdminRefundBookingView.as_view(), name="admin-booking-refund"),

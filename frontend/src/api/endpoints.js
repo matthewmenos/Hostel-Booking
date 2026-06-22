@@ -23,6 +23,9 @@ export const hostelApi = {
       headers: { "Content-Type": "multipart/form-data" },
     }),
   deleteImage:    (id) => api.delete(`/gallery/${id}/`),
+  roomPhotos:     (slug, roomType) => api.get(`/hostels/${slug}/room-photos/`, { params: roomType ? { room_type: roomType } : {} }),
+  uploadRoomPhoto:(slug, formData) => api.post(`/hostels/${slug}/room-photos/`, formData, { headers: { "Content-Type": "multipart/form-data" } }),
+  deleteRoomPhoto:(id) => api.delete(`/room-photos/${id}/`),
   reviews:        (slug) => api.get(`/hostels/${slug}/reviews/`),
   submitReview:   (slug, payload) => api.post(`/hostels/${slug}/reviews/`, payload),
   deleteReview:   (id) => api.delete(`/reviews/${id}/`),
@@ -73,6 +76,26 @@ export const tenantApi = {
   announcements:      (slug) => api.get("/tenant/announcements/", { tenant: slug }),
   createAnnouncement: (slug, payload) => api.post("/tenant/announcements/", payload, { tenant: slug }),
   deleteAnnouncement: (slug, id) => api.delete(`/tenant/announcements/${id}/`, { tenant: slug }),
+};
+
+export const waitlistApi = {
+  mine:       () => api.get("/waitlist/"),
+  join:       (hostel, room_type) => api.post("/waitlist/", { hostel, room_type }),
+  leave:      (hostelSlug, roomType) => api.delete(`/waitlist/${hostelSlug}/${roomType}/`),
+  managerCounts: (hostelSlug) => api.get("/manager/waitlist/", { params: { hostel: hostelSlug } }),
+};
+
+export const roommateApi = {
+  profile:       () => api.get("/roommates/profile/"),
+  saveProfile:   (payload) => api.post("/roommates/profile/", payload),
+  list:          (hostelSlug) => api.get("/roommates/", { params: { hostel: hostelSlug } }),
+  requests:      () => api.get("/roommates/requests/"),
+  sendRequest:   (payload) => api.post("/roommates/requests/", payload),
+  decide:        (pk, action) => api.post(`/roommates/requests/${pk}/${action}/`),
+};
+
+export const renewalApi = {
+  eligible: () => api.get("/bookings/renewal-eligible/"),
 };
 
 export const chatApi = {

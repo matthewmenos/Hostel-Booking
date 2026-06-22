@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone } from "lucide-react";
-import { bookingApi, authApi, notifApi, tenantApi } from "../api/endpoints.js";
+import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone, Clock, UserPlus, Heart, RefreshCw, BarChart3 } from "lucide-react";
+import { bookingApi, authApi, notifApi, tenantApi, waitlistApi, roommateApi, renewalApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { useChat } from "../context/ChatContext.jsx";
@@ -44,6 +44,9 @@ const UNI_CATEGORIES = [
 
 const TABS = [
   { id: "bookings",      label: "My Bookings" },
+  { id: "waitlist",      label: "Waitlist" },
+  { id: "roommates",     label: "Roommates" },
+  { id: "renewal",       label: "Renew Stay" },
   { id: "groups",        label: "My Groups" },
   { id: "announcements", label: "Announcements" },
   { id: "report",        label: "Report Issue" },
@@ -76,6 +79,9 @@ export default function StudentDashboard() {
       </div>
 
       {tab === "bookings"      && <BookingsTab />}
+      {tab === "waitlist"      && <WaitlistTab />}
+      {tab === "roommates"     && <RoommatesTab />}
+      {tab === "renewal"       && <RenewalTab />}
       {tab === "groups"        && <GroupsPreviewTab />}
       {tab === "announcements" && <AnnouncementsTab />}
       {tab === "report"        && <ReportTab />}
@@ -582,6 +588,290 @@ function AnnouncementsTab() {
           <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed pl-10">{ann.body}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+
+// ── Waitlist tab ──────────────────────────────────────────────────────────────
+
+function WaitlistTab() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { addToast } = useToast();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    waitlistApi.mine()
+      .then(({ data }) => setEntries(data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const leave = async (hostelSlug, roomType) => {
+    try {
+      await waitlistApi.leave(hostelSlug, roomType);
+      setEntries((prev) => prev.filter((e) => !(e.hostel_slug === hostelSlug && e.room_type === roomType)));
+      addToast("success", "Removed from waitlist.");
+    } catch { addToast("error", "Could not leave waitlist."); }
+  };
+
+  if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
+
+  if (entries.length === 0) return (
+    <div className="card p-10 text-center space-y-3 text-gray-400">
+      <Clock size={40} className="mx-auto opacity-50" />
+      <p className="font-medium text-gray-600 dark:text-gray-300">No active waitlists</p>
+      <p className="text-sm">When a hostel room type is full, you can join the waitlist from its page.</p>
+      <button onClick={() => navigate("/")} className="btn-primary px-5 py-2 mt-1">Browse Hostels</button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">You will be notified by email and in-app when a bed becomes available. You will have 24 hours to book.</p>
+      {entries.map((e) => (
+        <div key={e.id} className="card p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600">
+              <Clock size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold truncate">{e.hostel_name}</p>
+              <p className="text-sm text-gray-500">{e.room_type_display} · Position #{e.position}</p>
+              {e.notified_at && (
+                <p className="text-xs text-green-600 font-medium mt-0.5">A bed is available — book now!</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {e.notified_at && (
+              <button onClick={() => navigate(`/hostels/${e.hostel_slug}`)} className="btn-primary px-3 py-1.5 text-xs">
+                Book Now
+              </button>
+            )}
+            <button onClick={() => leave(e.hostel_slug, e.room_type)} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 transition">
+              Leave
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ── Roommates tab ─────────────────────────────────────────────────────────────
+
+function RoommatesTab() {
+  const { addToast } = useToast();
+  const [profile, setProfile] = useState(null);
+  const [profiles, setProfiles] = useState([]);
+  const [requests, setRequests] = useState({ sent: [], received: [] });
+  const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [form, setForm] = useState({ hostel: "", course: "", year_of_study: "", sleep_schedule: "", study_habit: "", is_smoker: false, bio: "", is_visible: true });
+  const [bookings, setBookings] = useState([]);
+
+  useEffect(() => {
+    Promise.all([
+      roommateApi.profile().catch(() => ({ data: null })),
+      roommateApi.requests().catch(() => ({ data: { sent: [], received: [] } })),
+      bookingApi.myBookings().catch(() => ({ data: [] })),
+    ]).then(([p, r, b]) => {
+      const prof = p.data;
+      setProfile(prof);
+      setRequests(r.data);
+      const bList = b.data?.results ?? b.data ?? [];
+      setBookings(bList);
+      if (prof) {
+        setForm({ ...prof, hostel: prof.hostel_slug });
+        roommateApi.list(prof.hostel_slug).then(({ data }) => setProfiles(data.results ?? data));
+      }
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const activeHostelSlug = bookings.find((b) => b.payment_status === "paid" || b.payment_status === "paid_awaiting_approval")?.hostel_slug;
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      const { data } = await roommateApi.saveProfile({ ...form, hostel: form.hostel || activeHostelSlug });
+      setProfile(data);
+      setEditMode(false);
+      addToast("success", "Profile saved!");
+      if (data.hostel_slug) roommateApi.list(data.hostel_slug).then(({ data: d }) => setProfiles(d.results ?? d));
+    } catch (err) { addToast("error", err.response?.data?.detail ?? "Could not save profile."); }
+  };
+
+  const sendRequest = async (receiverId, hostelSlug) => {
+    try {
+      await roommateApi.sendRequest({ receiver: receiverId, hostel: hostelSlug });
+      addToast("success", "Roommate request sent!");
+      const { data } = await roommateApi.requests();
+      setRequests(data);
+    } catch (err) { addToast("error", err.response?.data?.detail ?? "Could not send request."); }
+  };
+
+  const decide = async (pk, action) => {
+    try {
+      await roommateApi.decide(pk, action);
+      const { data } = await roommateApi.requests();
+      setRequests(data);
+      addToast("success", action === "accept" ? "Request accepted!" : "Request declined.");
+    } catch { addToast("error", "Could not update request."); }
+  };
+
+  if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
+
+  if (!profile && !editMode) return (
+    <div className="card p-10 text-center space-y-3 text-gray-400">
+      <Users size={40} className="mx-auto opacity-50" />
+      <p className="font-medium text-gray-600 dark:text-gray-300">Find a compatible roommate</p>
+      <p className="text-sm">Create a profile so other students at your hostel can find you.</p>
+      {activeHostelSlug
+        ? <button onClick={() => { setForm((f) => ({ ...f, hostel: activeHostelSlug })); setEditMode(true); }} className="btn-primary px-5 py-2">Create Profile</button>
+        : <p className="text-xs text-amber-500">You need an approved booking first.</p>}
+    </div>
+  );
+
+  if (editMode) return (
+    <form onSubmit={saveProfile} className="card p-5 space-y-4 max-w-lg">
+      <h2 className="font-semibold text-lg">Your Roommate Profile</h2>
+      <div><label className="label">Course of study</label><input className="input" value={form.course} onChange={(e) => setForm((f) => ({ ...f, course: e.target.value }))} /></div>
+      <div><label className="label">Year of study</label><input type="number" min={1} max={8} className="input" value={form.year_of_study} onChange={(e) => setForm((f) => ({ ...f, year_of_study: e.target.value }))} /></div>
+      <div><label className="label">Sleep schedule</label>
+        <select className="input" value={form.sleep_schedule} onChange={(e) => setForm((f) => ({ ...f, sleep_schedule: e.target.value }))}>
+          <option value="">— Select —</option>
+          <option value="early">Early bird (before 10 pm)</option>
+          <option value="normal">Normal (10 pm – midnight)</option>
+          <option value="night">Night owl (after midnight)</option>
+        </select>
+      </div>
+      <div><label className="label">Study habit</label>
+        <select className="input" value={form.study_habit} onChange={(e) => setForm((f) => ({ ...f, study_habit: e.target.value }))}>
+          <option value="">— Select —</option>
+          <option value="quiet">I study in silence</option>
+          <option value="music">I study with music/low noise</option>
+          <option value="social">I prefer group study</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-2"><input type="checkbox" id="smoker" checked={form.is_smoker} onChange={(e) => setForm((f) => ({ ...f, is_smoker: e.target.checked }))} /><label htmlFor="smoker" className="text-sm">I smoke</label></div>
+      <div><label className="label">Short bio <span className="text-gray-400 text-xs">(max 300 chars)</span></label><textarea className="input" rows={3} maxLength={300} value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} /></div>
+      <div className="flex items-center gap-2"><input type="checkbox" id="visible" checked={form.is_visible} onChange={(e) => setForm((f) => ({ ...f, is_visible: e.target.checked }))} /><label htmlFor="visible" className="text-sm">Visible to other students</label></div>
+      <div className="flex gap-2">
+        <button type="submit" className="btn-primary px-4 py-2">Save Profile</button>
+        {profile && <button type="button" onClick={() => setEditMode(false)} className="btn-ghost px-4 py-2">Cancel</button>}
+      </div>
+    </form>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Incoming requests */}
+      {requests.received.filter((r) => r.status === "pending").length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-semibold flex items-center gap-2"><Heart size={16} className="text-brand" /> Incoming Requests</h2>
+          {requests.received.filter((r) => r.status === "pending").map((r) => (
+            <div key={r.id} className="card p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="font-medium">{r.sender_name}</p>
+                <p className="text-sm text-gray-500">{r.hostel_name}</p>
+                {r.message && <p className="text-sm text-gray-400 mt-1 italic">"{r.message}"</p>}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => decide(r.id, "accept")} className="btn-primary px-3 py-1.5 text-xs">Accept</button>
+                <button onClick={() => decide(r.id, "decline")} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50">Decline</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* My profile card */}
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold">Students at {profile.hostel_name}</h2>
+        <button onClick={() => setEditMode(true)} className="btn-ghost px-3 py-1.5 text-xs">Edit my profile</button>
+      </div>
+
+      {profiles.length === 0 && <p className="text-gray-400 text-sm">No other visible profiles yet at this hostel.</p>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {profiles.map((p) => {
+          const alreadySent = requests.sent.some((r) => r.receiver === p.student && r.hostel_slug === p.hostel_slug);
+          return (
+            <div key={p.id} className="card p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{p.student_name}</p>
+                  <p className="text-xs text-gray-400">{p.course}{p.year_of_study ? ` · Year ${p.year_of_study}` : ""}</p>
+                </div>
+                <button
+                  onClick={() => !alreadySent && sendRequest(p.student, p.hostel_slug)}
+                  disabled={alreadySent}
+                  className={`shrink-0 flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition
+                    ${alreadySent ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-brand/10 text-brand hover:bg-brand hover:text-white"}`}
+                >
+                  <UserPlus size={12} /> {alreadySent ? "Sent" : "Connect"}
+                </button>
+              </div>
+              {p.bio && <p className="text-sm text-gray-500 leading-snug">{p.bio}</p>}
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {p.sleep_schedule && <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5">{p.sleep_schedule === "early" ? "Early bird" : p.sleep_schedule === "night" ? "Night owl" : "Normal hours"}</span>}
+                {p.study_habit && <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5">{p.study_habit === "quiet" ? "Studies in silence" : p.study_habit === "music" ? "Studies w/ music" : "Group study"}</span>}
+                {p.is_smoker && <span className="rounded-full bg-orange-100 text-orange-600 px-2 py-0.5">Smoker</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ── Renewal tab ───────────────────────────────────────────────────────────────
+
+function RenewalTab() {
+  const navigate = useNavigate();
+  const { addToast } = useToast();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    renewalApi.eligible()
+      .then(({ data: d }) => setData(d))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
+
+  if (!data?.eligible) return (
+    <div className="card p-10 text-center space-y-3 text-gray-400">
+      <RefreshCw size={40} className="mx-auto opacity-50" />
+      <p className="font-medium text-gray-600 dark:text-gray-300">No renewal needed yet</p>
+      <p className="text-sm">This tab shows a renewal prompt when your current stay ends within 35 days.</p>
+    </div>
+  );
+
+  const b = data.booking;
+  const endDate = new Date(data.end_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <div className="card p-5 border-l-4 border-amber-400 space-y-2">
+        <p className="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <RefreshCw size={16} /> Your stay ends on {endDate}
+        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          Renew your bed at <strong>{b.hostel_name}</strong> ({b.room_type}) to keep your spot. Your current bed will be held for renewal.
+        </p>
+      </div>
+      <button
+        onClick={() => navigate(`/book/${b.hostel_slug}/${b.bed_space_ref}?renew=1`)}
+        className="btn-primary w-full py-3 text-base flex items-center justify-center gap-2"
+      >
+        <RefreshCw size={18} /> Renew my bed
+      </button>
+      <p className="text-xs text-center text-gray-400">Renewing books the same bed for a new term.</p>
     </div>
   );
 }

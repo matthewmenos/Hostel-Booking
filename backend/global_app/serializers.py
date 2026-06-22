@@ -5,7 +5,7 @@ from rest_framework import serializers
 from .models import (
     TenantHostel, HostelImage, GlobalBooking, Payment, ManagerVerification,
     Notification, ChatRoom, ChatMembership, ChatMessage, MessageReaction,
-    HostelReview,
+    HostelReview, WaitlistEntry, RoommateProfile, RoommateRequest, RoomPhoto,
 )
 
 
@@ -333,3 +333,93 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     def get_members(self, obj):
         memberships = obj.memberships.filter(is_active=True).select_related("user")
         return ChatMemberSerializer(memberships, many=True).data
+
+
+# ---------------------------------------------------------------------------
+# Waitlist
+# ---------------------------------------------------------------------------
+
+class WaitlistEntrySerializer(serializers.ModelSerializer):
+    hostel_name     = serializers.CharField(source="hostel.name", read_only=True)
+    hostel_slug     = serializers.CharField(source="hostel.slug", read_only=True)
+    room_type_display = serializers.SerializerMethodField()
+
+    def get_room_type_display(self, obj):
+        label_map = {
+            "1_in_a_room": "1 in a room",
+            "2_in_a_room": "2 in a room",
+            "3_in_a_room": "3 in a room",
+            "4_in_a_room": "4 in a room",
+            "6_in_a_room": "6 in a room",
+        }
+        return label_map.get(obj.room_type, obj.room_type)
+
+    class Meta:
+        model = WaitlistEntry
+        fields = (
+            "id", "hostel", "hostel_name", "hostel_slug",
+            "room_type", "room_type_display", "position",
+            "notified_at", "created_at",
+        )
+        read_only_fields = ("id", "position", "notified_at", "created_at", "hostel_name", "hostel_slug")
+
+
+# ---------------------------------------------------------------------------
+# Roommate matching
+# ---------------------------------------------------------------------------
+
+class RoommateProfileSerializer(serializers.ModelSerializer):
+    student_username = serializers.CharField(source="student.username", read_only=True)
+    student_name     = serializers.SerializerMethodField()
+    hostel_name      = serializers.CharField(source="hostel.name", read_only=True)
+    hostel_slug      = serializers.CharField(source="hostel.slug", read_only=True)
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username
+
+    class Meta:
+        model = RoommateProfile
+        fields = (
+            "id", "student", "student_username", "student_name",
+            "hostel", "hostel_name", "hostel_slug",
+            "course", "year_of_study", "sleep_schedule", "study_habit",
+            "is_smoker", "bio", "is_visible", "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "student", "created_at", "updated_at")
+
+
+class RoommateRequestSerializer(serializers.ModelSerializer):
+    sender_username   = serializers.CharField(source="sender.username", read_only=True)
+    sender_name       = serializers.SerializerMethodField()
+    receiver_username = serializers.CharField(source="receiver.username", read_only=True)
+    hostel_name       = serializers.CharField(source="hostel.name", read_only=True)
+    hostel_slug       = serializers.CharField(source="hostel.slug", read_only=True)
+
+    def get_sender_name(self, obj):
+        return obj.sender.get_full_name() or obj.sender.username
+
+    class Meta:
+        model = RoommateRequest
+        fields = (
+            "id", "sender", "sender_username", "sender_name",
+            "receiver", "receiver_username",
+            "hostel", "hostel_name", "hostel_slug",
+            "status", "message", "created_at",
+        )
+        read_only_fields = ("id", "sender", "created_at")
+
+
+class RoomPhotoSerializer(serializers.ModelSerializer):
+    image_url  = serializers.SerializerMethodField()
+    hostel_slug = serializers.CharField(source="hostel.slug", read_only=True)
+
+    class Meta:
+        model  = RoomPhoto
+        fields = ["id", "hostel_slug", "room_type", "image", "image_url", "caption", "order", "uploaded_at"]
+        read_only_fields = ["id", "uploaded_at", "hostel_slug"]
+
+    def get_image_url(self, obj):
+        request = self.context.get("request")
+        if obj.image and request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url if obj.image else None

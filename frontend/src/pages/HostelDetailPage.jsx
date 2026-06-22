@@ -1,8 +1,8 @@
 import { useEffect, useState, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Wifi, Snowflake, Zap, BedDouble, MapPin, BadgeCheck, ChevronLeft, ChevronRight,
-  Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users, Star, GitCompare, Trash2 } from "lucide-react";
-import { hostelApi, tenantApi, bookingApi } from "../api/endpoints.js";
+  Droplets, ShieldCheck, Car, WashingMachine, ChefHat, CheckCircle2, XCircle, Users, Star, GitCompare, Trash2, Clock, Images } from "lucide-react";
+import { hostelApi, tenantApi, bookingApi, waitlistApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { useCompare } from "../context/CompareContext.jsx";
@@ -284,6 +284,59 @@ function ReviewsSection({ slug, hostel }) {
   );
 }
 
+function RoomPhotoCarousel({ photos }) {
+  const [idx, setIdx] = useState(0);
+  const [lightbox, setLightbox] = useState(false);
+  if (!photos?.length) return null;
+  const prev = () => setIdx((i) => (i - 1 + photos.length) % photos.length);
+  const next = () => setIdx((i) => (i + 1) % photos.length);
+  const photo = photos[idx];
+  return (
+    <>
+      <div className="relative mt-3 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800" style={{ height: 180 }}>
+        <img
+          src={photo.image_url}
+          alt={photo.caption || `Room photo ${idx + 1}`}
+          className="h-full w-full object-cover cursor-zoom-in"
+          onClick={() => setLightbox(true)}
+        />
+        {photos.length > 1 && (
+          <>
+            <button onClick={prev} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1 text-white hover:bg-black/60">
+              <ChevronLeft size={16} />
+            </button>
+            <button onClick={next} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1 text-white hover:bg-black/60">
+              <ChevronRight size={16} />
+            </button>
+            <span className="absolute bottom-2 right-2 rounded-full bg-black/40 px-2 py-0.5 text-xs text-white">
+              {idx + 1}/{photos.length}
+            </span>
+          </>
+        )}
+        {photo.caption && (
+          <span className="absolute bottom-2 left-2 rounded bg-black/40 px-2 py-0.5 text-xs text-white max-w-[70%] truncate">
+            {photo.caption}
+          </span>
+        )}
+      </div>
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setLightbox(false)}>
+          <div className="relative max-w-3xl w-full" onClick={(e) => e.stopPropagation()}>
+            <img src={photo.image_url} alt={photo.caption || ""} className="w-full rounded-xl object-contain max-h-[80vh]" />
+            {photos.length > 1 && (
+              <>
+                <button onClick={prev} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white"><ChevronLeft size={20} /></button>
+                <button onClick={next} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white"><ChevronRight size={20} /></button>
+              </>
+            )}
+            <button onClick={() => setLightbox(false)} className="absolute top-2 right-2 rounded-full bg-black/50 px-3 py-1 text-white text-sm">✕ Close</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function HostelDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -295,17 +348,36 @@ export default function HostelDetailPage() {
   const [rooms, setRooms] = useState([]);
   const [roomFilter, setRoomFilter] = useState("all");
   const [status, setStatus] = useState({ loading: true, error: null });
+  const [myWaitlist, setMyWaitlist] = useState([]); // room_types student is queued for
+  const [roomPhotos, setRoomPhotos] = useState({}); // keyed by room_type
 
   useEffect(() => {
     setStatus((s) => ({ ...s, loading: true }));
-    Promise.all([hostelApi.get(slug), tenantApi.rooms(slug)])
-      .then(([h, r]) => {
+    const fetches = [hostelApi.get(slug), tenantApi.rooms(slug)];
+    if (isAuthed && user?.role === "student") fetches.push(waitlistApi.mine());
+    Promise.all(fetches)
+      .then(([h, r, wl]) => {
         setHostel(h.data);
         setRooms(r.data.results ?? r.data);
+        if (wl) {
+          const entries = wl.data ?? [];
+          setMyWaitlist(
+            entries.filter((e) => e.hostel_slug === slug).map((e) => e.room_type)
+          );
+        }
         setStatus({ loading: false, error: null });
       })
       .catch(() => setStatus({ loading: false, error: "Could not load this hostel." }));
-  }, [slug]);
+    // Load room photos (virtual tour)
+    hostelApi.roomPhotos(slug).then(({ data }) => {
+      const byType = {};
+      (data ?? []).forEach((p) => {
+        if (!byType[p.room_type]) byType[p.room_type] = [];
+        byType[p.room_type].push(p);
+      });
+      setRoomPhotos(byType);
+    }).catch(() => {});
+  }, [slug, isAuthed, user]);
 
   const book = (bedId) => {
     if (!isAuthed) return navigate("/login", { state: { from: { pathname: `/hostels/${slug}` } } });
@@ -314,6 +386,25 @@ export default function HostelDetailPage() {
       return;
     }
     navigate(`/book/${slug}/${bedId}`);
+  };
+
+  const toggleWaitlist = async (roomType) => {
+    if (!isAuthed) return navigate("/login");
+    if (user?.role !== "student") { addToast("info", "Only students can join waitlists."); return; }
+    const onList = myWaitlist.includes(roomType);
+    try {
+      if (onList) {
+        await waitlistApi.leave(slug, roomType);
+        setMyWaitlist((prev) => prev.filter((r) => r !== roomType));
+        addToast("success", "Removed from waitlist.");
+      } else {
+        await waitlistApi.join(slug, roomType);
+        setMyWaitlist((prev) => [...prev, roomType]);
+        addToast("success", "Added to waitlist! We'll notify you when a bed is free.");
+      }
+    } catch (e) {
+      addToast("error", e.response?.data?.detail ?? "Could not update waitlist.");
+    }
   };
 
   if (status.loading) return (
@@ -424,6 +515,10 @@ export default function HostelDetailPage() {
               {room.has_ac && <Snowflake size={18} title="AC" />}
               {room.has_generator && <Zap size={18} title="Generator" />}
             </div>
+            {/* Room photo carousel */}
+            {roomPhotos[room.room_type]?.length > 0 && (
+              <RoomPhotoCarousel photos={roomPhotos[room.room_type]} />
+            )}
             <div className="mt-3 space-y-2">
               {room.beds.map((bed) => (
                 <div key={bed.id} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-700/50 px-3 py-2.5 gap-2">
@@ -443,6 +538,24 @@ export default function HostelDetailPage() {
                 <p className="text-sm text-gray-400">No beds configured yet.</p>
               )}
             </div>
+            {/* Waitlist CTA — shown when all beds in this room type are occupied */}
+            {isAuthed && user?.role === "student" && room.beds.length > 0 && room.beds.every((b) => b.is_occupied) && (
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between gap-3">
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  <Clock size={12} /> This room type is full
+                </span>
+                <button
+                  onClick={() => toggleWaitlist(room.room_type)}
+                  className={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition
+                    ${myWaitlist.includes(room.room_type)
+                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 hover:bg-amber-200"
+                      : "bg-brand/10 text-brand hover:bg-brand hover:text-white"}`}
+                >
+                  <Clock size={12} />
+                  {myWaitlist.includes(room.room_type) ? "Leave waitlist" : "Join waitlist"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {rooms.filter((r) => roomFilter === "all" || r.room_type === roomFilter).length === 0 && (

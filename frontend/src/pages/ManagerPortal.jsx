@@ -5,7 +5,11 @@ import {
   Megaphone, BookOpen, Pencil, X, BarChart2, Image, Upload, TrendingUp,
   ShieldAlert, Clock, AlertCircle, MessageSquare, Wrench,
 } from "lucide-react";
-import { hostelApi, tenantApi, bookingApi, managerApi, notifApi } from "../api/endpoints.js";
+import { hostelApi, tenantApi, bookingApi, managerApi, notifApi, waitlistApi } from "../api/endpoints.js";
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
 import { SkeletonStatCard, SkeletonBookingRow } from "../components/Skeleton.jsx";
@@ -15,6 +19,7 @@ const TABS = [
   { id: "overview",      label: "Overview" },
   { id: "rooms",         label: "Rooms & Beds" },
   { id: "gallery",       label: "Gallery" },
+  { id: "tour",          label: "Room Tour" },
   { id: "announcements", label: "Announcements" },
   { id: "bookings",      label: "Bookings" },
   { id: "calendar",      label: "Calendar" },
@@ -197,6 +202,7 @@ export default function ManagerPortal() {
       )}
       {tab === "rooms"         && <RoomsTab slug={active} rooms={rooms} onRoomsChange={setRooms} />}
       {tab === "gallery"       && <GalleryTab slug={active} hostels={hostels} active={active} onHostelUpdated={(updated) => setHostels((prev) => prev.map((h) => h.slug === updated.slug ? updated : h))} />}
+      {tab === "tour"          && <RoomTourTab slug={active} rooms={rooms} />}
       {tab === "announcements" && <AnnouncementsTab slug={active} />}
       {tab === "bookings"      && <BookingsTab slug={active} hostels={hostels} />}
       {tab === "calendar"      && <OccupancyCalendarTab slug={active} />}
@@ -791,14 +797,23 @@ function BookingsTab({ slug: initialSlug, hostels }) {
 
 // ── Analytics tab ─────────────────────────────────────────────────────────────
 
+const CHART_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
+
 function AnalyticsTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [waitlistData, setWaitlistData] = useState([]);
 
   useEffect(() => {
-    bookingApi.managerAnalytics()
-      .then(({ data: d }) => setData(d))
+    Promise.all([
+      bookingApi.managerAnalytics(),
+      waitlistApi.managerCounts().catch(() => ({ data: [] })),
+    ])
+      .then(([{ data: d }, { data: wl }]) => {
+        setData(d);
+        setWaitlistData(wl ?? []);
+      })
       .catch(() => setError("Could not load analytics."))
       .finally(() => setLoading(false));
   }, []);
@@ -807,52 +822,122 @@ function AnalyticsTab() {
   if (error) return <p className="text-red-500 text-sm">{error}</p>;
   if (!data) return null;
 
-  const maxRevenue = Math.max(...data.monthly.map((m) => m.revenue), 1);
+  const paidTotal = (data.by_status?.paid ?? 0) + (data.by_status?.paid_awaiting_approval ?? 0);
+  const pending   = data.by_status?.pending ?? 0;
+  const expired   = data.by_status?.expired ?? 0;
+  const refunded  = data.by_status?.refunded ?? 0;
+
+  const pieData = [
+    { name: "Paid",    value: paidTotal },
+    { name: "Pending", value: pending },
+    { name: "Expired", value: expired },
+    { name: "Refunded",value: refunded },
+  ].filter((d) => d.value > 0);
 
   return (
     <div className="space-y-6">
-      {/* Top-line stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* KPI row */}
+      <div className="grid gap-4 sm:grid-cols-4">
         <StatCard icon={TrendingUp} label="Total Revenue" value={`GHS ${data.total_revenue.toLocaleString("en-GH", { minimumFractionDigits: 2 })}`} />
-        <StatCard icon={BookOpen} label="Paid Bookings" value={(data.by_status?.paid ?? 0) + (data.by_status?.paid_awaiting_approval ?? 0)} />
-        <StatCard icon={BarChart2} label="Pending" value={data.by_status?.pending ?? 0} />
+        <StatCard icon={BookOpen}  label="Paid Bookings" value={paidTotal} />
+        <StatCard icon={Clock}     label="Pending"        value={pending} />
+        <StatCard icon={BarChart2} label="Hostels"        value={data.hostels.length} />
       </div>
 
-      {/* Monthly revenue bar chart */}
+      {/* Monthly revenue + bookings dual-axis chart */}
       {data.monthly.length > 0 && (
         <div className="card p-5">
-          <h2 className="mb-4 font-semibold text-lg flex items-center gap-2"><BarChart2 size={18}/> Monthly Revenue (GHS)</h2>
-          <div className="flex items-end gap-2 overflow-x-auto pb-2" style={{ height: 160 }}>
-            {data.monthly.map((m) => {
-              const pct = (m.revenue / maxRevenue) * 100;
-              return (
-                <div key={m.month} className="flex flex-col items-center gap-1 shrink-0" style={{ width: 48 }}>
-                  <span className="text-xs text-gray-500">{m.revenue > 0 ? `${(m.revenue/1000).toFixed(1)}k` : ""}</span>
-                  <div
-                    className="w-full rounded-t bg-brand transition-all"
-                    style={{ height: `${Math.max(pct, 2)}%`, minHeight: 4 }}
-                    title={`GHS ${m.revenue} — ${m.bookings} bookings`}
-                  />
-                  <span className="text-xs text-gray-400 truncate w-full text-center">{m.month.split(" ")[0]}</span>
-                </div>
-              );
-            })}
-          </div>
+          <h2 className="mb-4 font-semibold text-lg flex items-center gap-2">
+            <BarChart2 size={18} className="text-brand" /> Monthly Revenue &amp; Bookings
+          </h2>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={data.monthly} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={(v) => v.split(" ")[0]} />
+              <YAxis yAxisId="rev" orientation="left" tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+              <YAxis yAxisId="cnt" orientation="right" tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip
+                formatter={(val, name) =>
+                  name === "revenue" ? [`GHS ${Number(val).toLocaleString()}`, "Revenue"] : [val, "Bookings"]
+                }
+              />
+              <Legend />
+              <Bar yAxisId="rev" dataKey="revenue" fill="#6366f1" radius={[4,4,0,0]} name="Revenue (GHS)" />
+              <Bar yAxisId="cnt" dataKey="bookings" fill="#22c55e" radius={[4,4,0,0]} name="Bookings" />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
-      {/* Per-hostel breakdown */}
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* Booking status pie */}
+        {pieData.length > 0 && (
+          <div className="card p-5">
+            <h2 className="mb-4 font-semibold text-lg flex items-center gap-2">
+              <Percent size={16} className="text-brand" /> Booking Status Mix
+            </h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`}>
+                  {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Occupancy per hostel bar */}
+        {data.hostels.length > 0 && (
+          <div className="card p-5">
+            <h2 className="mb-4 font-semibold text-lg flex items-center gap-2">
+              <ShieldAlert size={16} className="text-brand" /> Occupancy Rate
+            </h2>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={data.hostels} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                <XAxis type="number" domain={[0,100]} tick={{ fontSize: 11 }} unit="%" />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+                <Tooltip formatter={(v) => [`${v}%`, "Occupancy"]} />
+                <Bar dataKey="occupancy_pct" fill="#6366f1" radius={[0,4,4,0]} name="Occupancy %">
+                  {data.hostels.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Waitlist demand */}
+      {waitlistData.length > 0 && (
+        <div className="card p-5">
+          <h2 className="mb-4 font-semibold text-lg flex items-center gap-2">
+            <Clock size={16} className="text-brand" /> Waitlist Demand by Room Type
+          </h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={waitlistData} margin={{ top: 4, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="room_type" tick={{ fontSize: 11 }} tickFormatter={(v) => v.replace(/_/g," ")} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => [v, "Students waiting"]} />
+              <Bar dataKey="count" fill="#f59e0b" radius={[4,4,0,0]} name="Waiting" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Per-hostel table */}
       <div className="card p-5">
-        <h2 className="mb-4 font-semibold text-lg">Per-Hostel Breakdown</h2>
+        <h2 className="mb-4 font-semibold text-lg">Per-Hostel Summary</h2>
         <div className="space-y-3">
           {data.hostels.map((h) => (
             <div key={h.slug} className="flex items-center justify-between gap-4 rounded-lg bg-gray-50 dark:bg-gray-800 px-4 py-3">
               <div>
                 <p className="font-medium">{h.name}</p>
-                <p className="text-xs text-gray-500">{h.paid_bookings} paid bookings · GHS {h.revenue.toFixed(2)}</p>
+                <p className="text-xs text-gray-500">{h.paid_bookings} paid · GHS {h.revenue.toFixed(2)}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <div className="h-2 w-16 sm:w-24 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div className="h-2 w-20 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
                   <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(h.occupancy_pct, 100)}%` }} />
                 </div>
                 <span className="text-sm font-medium text-brand whitespace-nowrap">{h.occupancy_pct}%</span>
@@ -1266,6 +1351,122 @@ function MessagesTab({ hostels, activeSlug }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Room Tour Tab (manager: upload room-level photos) ────────────────────────
+
+function RoomTourTab({ slug, rooms }) {
+  const { addToast } = useToast();
+  const [photos, setPhotos] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [selectedType, setSelectedType] = useState("");
+
+  const roomTypes = [...new Set(rooms.map((r) => r.room_type))];
+
+  const load = () => {
+    if (!slug) return;
+    setLoading(true);
+    hostelApi.roomPhotos(slug).then(({ data }) => {
+      const byType = {};
+      (data ?? []).forEach((p) => {
+        if (!byType[p.room_type]) byType[p.room_type] = [];
+        byType[p.room_type].push(p);
+      });
+      setPhotos(byType);
+    }).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [slug]);
+  useEffect(() => { if (roomTypes.length && !selectedType) setSelectedType(roomTypes[0]); }, [rooms]);
+
+  const upload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedType) return;
+    const fd = new FormData();
+    fd.append("image", file);
+    fd.append("room_type", selectedType);
+    if (caption) fd.append("caption", caption);
+    setUploading(true);
+    try {
+      await hostelApi.uploadRoomPhoto(slug, fd);
+      setCaption("");
+      e.target.value = "";
+      addToast("success", "Photo uploaded.");
+      load();
+    } catch { addToast("error", "Upload failed."); }
+    finally { setUploading(false); }
+  };
+
+  const remove = async (id, roomType) => {
+    try {
+      await hostelApi.deleteRoomPhoto(id);
+      setPhotos((prev) => ({
+        ...prev,
+        [roomType]: prev[roomType].filter((p) => p.id !== id),
+      }));
+      addToast("success", "Photo deleted.");
+    } catch { addToast("error", "Could not delete photo."); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-5">
+        <h2 className="font-semibold mb-4 flex items-center gap-2"><Image size={16} className="text-brand" /> Upload Room Photo</h2>
+        {roomTypes.length === 0 ? (
+          <p className="text-sm text-gray-400">Create rooms first in the Rooms &amp; Beds tab.</p>
+        ) : (
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="label">Room type</label>
+              <select className="input" value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
+                {roomTypes.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 min-w-48">
+              <label className="label">Caption <span className="text-gray-400 text-xs">(optional)</span></label>
+              <input className="input" placeholder="e.g. View from the window" value={caption} onChange={(e) => setCaption(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Photo</label>
+              <label className={`flex items-center gap-2 cursor-pointer rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm hover:border-brand transition ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                <Upload size={16} /> {uploading ? "Uploading…" : "Choose file"}
+                <input type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {loading && <p className="text-sm text-gray-400">Loading photos…</p>}
+      {!loading && roomTypes.map((rt) => (
+        <div key={rt} className="space-y-3">
+          <h3 className="font-medium capitalize">{rt.replace(/_/g, " ")} <span className="text-xs text-gray-400 ml-1">({(photos[rt] ?? []).length} photos)</span></h3>
+          {(photos[rt] ?? []).length === 0 ? (
+            <p className="text-sm text-gray-400">No photos uploaded yet for this room type.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {photos[rt].map((p) => (
+                <div key={p.id} className="relative group rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 aspect-video">
+                  <img src={p.image_url} alt={p.caption || ""} className="h-full w-full object-cover" />
+                  {p.caption && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 text-xs text-white truncate">{p.caption}</div>
+                  )}
+                  <button
+                    onClick={() => remove(p.id, rt)}
+                    className="absolute top-1 right-1 hidden group-hover:flex items-center justify-center rounded-full bg-red-500 p-1 text-white"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

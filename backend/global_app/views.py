@@ -36,6 +36,8 @@ from .models import (
     TenantHostel, HostelImage, GlobalBooking, Payment, PaymentProvider, PaymentStatus,
     ManagerVerification, VerificationStatus, Notification, NotifType,
     ChatRoom, ChatMembership, ChatRoomType,
+    WaitlistEntry, RoommateProfile, RoommateRequest,
+    SleepSchedule, StudyHabit, RoomPhoto,
 )
 from .serializers import (
     TenantHostelSerializer,
@@ -46,6 +48,10 @@ from .serializers import (
     ManagerVerificationSerializer,
     ManagerVerificationAdminSerializer,
     NotificationSerializer,
+    WaitlistEntrySerializer,
+    RoommateProfileSerializer,
+    RoommateRequestSerializer,
+    RoomPhotoSerializer,
 )
 from .notifications import notify, notify_many
 from .permissions import IsManager, IsOwnerOrReadOnly, IsSuperAdmin
@@ -176,6 +182,11 @@ class CancelBookingView(generics.GenericAPIView):
             _remove_student_from_chat_groups(booking)
         except Exception as exc:
             logger.error("Failed to remove student from chat groups for booking #%s: %s", booking.pk, exc)
+
+        try:
+            _notify_waitlist(booking)
+        except Exception as exc:
+            logger.error("Waitlist notification failed for booking #%s: %s", booking.pk, exc)
 
         return Response(GlobalBookingSerializer(booking).data)
 
@@ -547,6 +558,11 @@ class AdminRefundBookingView(generics.GenericAPIView):
         except Exception as exc:
             logger.error("Failed to remove student from chat groups for booking #%s: %s", booking.pk, exc)
 
+        try:
+            _notify_waitlist(booking)
+        except Exception as exc:
+            logger.error("Waitlist notification failed for booking #%s: %s", booking.pk, exc)
+
         return Response(GlobalBookingSerializer(booking).data)
 
 
@@ -849,6 +865,35 @@ def _remove_student_from_chat_groups(booking):
     ChatMembership.objects.filter(
         booking_ref=booking.pk, is_active=True
     ).update(is_active=False)
+
+
+def _notify_waitlist(booking):
+    """
+    After a bed is freed (cancel/refund/expiry), check the waitlist for the
+    same hostel + room_type. Notify the first un-notified entry and record
+    the notification timestamp so we can enforce the 24-h window.
+    Called inside a try/except at the call site so errors never block the booking flow.
+    """
+    entry = (
+        WaitlistEntry.objects
+        .filter(hostel=booking.hostel, room_type=booking.room_type, notified_at__isnull=True)
+        .order_by("position")
+        .first()
+    )
+    if not entry:
+        return
+    entry.notified_at = timezone.now()
+    entry.save(update_fields=["notified_at"])
+    notify(
+        entry.student,
+        notif_type=NotifType.WAITLIST_NOTIFIED,
+        title="A bed is now available!",
+        body=(
+            f"A {entry.room_type.replace('_', ' ')} bed at {booking.hostel.name} has become available. "
+            f"You have 24 hours to book before it opens to everyone."
+        ),
+        link=f"/hostels/{booking.hostel.slug}",
+    )
 
 
 def _send_booking_confirmation(booking, payment):
@@ -1681,3 +1726,251 @@ class HostelReviewDeleteView(generics.DestroyAPIView):
     def get_serializer_class(self):
         from .serializers import HostelReviewSerializer
         return HostelReviewSerializer
+
+
+# ===========================================================================
+# Feature 1: Waitlist
+# ===========================================================================
+
+class WaitlistView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        entries = WaitlistEntry.objects.filter(student=request.user).select_related("hostel")
+        return Response(WaitlistEntrySerializer(entries, many=True).data)
+
+    def post(self, request):
+        hostel_slug = request.data.get("hostel")
+        room_type   = request.data.get("room_type", "").strip()
+        if not hostel_slug or not room_type:
+            return Response({"detail": "hostel and room_type are required."}, status=status.HTTP_400_BAD_REQUEST)
+        hostel = get_object_or_404(TenantHostel, slug=hostel_slug, is_active=True)
+        if WaitlistEntry.objects.filter(student=request.user, hostel=hostel, room_type=room_type).exists():
+            return Response({"detail": "You are already on this waitlist."}, status=status.HTTP_409_CONFLICT)
+        if GlobalBooking.objects.filter(
+            student=request.user, hostel=hostel, room_type=room_type,
+            payment_status__in=[PaymentStatus.PENDING, PaymentStatus.PAID_AWAITING_APPROVAL, PaymentStatus.PAID]
+        ).exists():
+            return Response({"detail": "You already have an active booking for this room type."}, status=status.HTTP_409_CONFLICT)
+        last = WaitlistEntry.objects.filter(hostel=hostel, room_type=room_type).order_by("-position").first()
+        position = (last.position + 1) if last else 1
+        entry = WaitlistEntry.objects.create(
+            student=request.user, hostel=hostel, room_type=room_type, position=position
+        )
+        return Response(WaitlistEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+
+class WaitlistLeaveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, hostel_slug, room_type):
+        entry = get_object_or_404(
+            WaitlistEntry, student=request.user,
+            hostel__slug=hostel_slug, room_type=room_type
+        )
+        hostel = entry.hostel
+        deleted_position = entry.position
+        entry.delete()
+        from django.db.models import F
+        WaitlistEntry.objects.filter(
+            hostel=hostel, room_type=room_type, position__gt=deleted_position
+        ).update(position=F("position") - 1)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ManagerWaitlistView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        hostel_slug = request.query_params.get("hostel")
+        if not hostel_slug:
+            return Response({"detail": "hostel param required."}, status=400)
+        hostel = get_object_or_404(TenantHostel, slug=hostel_slug, owner=request.user)
+        from django.db.models import Count as DCount
+        counts = list(WaitlistEntry.objects.filter(hostel=hostel).values("room_type").annotate(count=DCount("id")))
+        return Response(counts)
+
+
+# ===========================================================================
+# Feature 2: Roommate Matching
+# ===========================================================================
+
+class RoommateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = RoommateProfile.objects.filter(student=request.user).select_related("hostel").first()
+        if not profile:
+            return Response({"detail": "No profile yet."}, status=404)
+        return Response(RoommateProfileSerializer(profile).data)
+
+    def post(self, request):
+        hostel_slug = request.data.get("hostel")
+        if not hostel_slug:
+            return Response({"detail": "hostel is required."}, status=400)
+        hostel = get_object_or_404(TenantHostel, slug=hostel_slug, is_active=True)
+        profile, _ = RoommateProfile.objects.get_or_create(student=request.user, defaults={"hostel": hostel})
+        profile.hostel = hostel
+        for field in ["course", "year_of_study", "sleep_schedule", "study_habit", "is_smoker", "bio", "is_visible"]:
+            if field in request.data:
+                setattr(profile, field, request.data[field])
+        profile.save()
+        return Response(RoommateProfileSerializer(profile).data)
+
+
+class RoommateListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = RoommateProfileSerializer
+
+    def get_queryset(self):
+        hostel_slug = self.request.query_params.get("hostel", "")
+        qs = RoommateProfile.objects.filter(is_visible=True).select_related("student", "hostel")
+        if hostel_slug:
+            qs = qs.filter(hostel__slug=hostel_slug)
+        return qs.exclude(student=self.request.user)
+
+
+class RoommateRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        sent     = RoommateRequest.objects.filter(sender=request.user).select_related("receiver", "hostel")
+        received = RoommateRequest.objects.filter(receiver=request.user).select_related("sender", "hostel")
+        return Response({
+            "sent":     RoommateRequestSerializer(sent, many=True).data,
+            "received": RoommateRequestSerializer(received, many=True).data,
+        })
+
+    def post(self, request):
+        receiver_id = request.data.get("receiver")
+        hostel_slug = request.data.get("hostel")
+        message     = request.data.get("message", "")
+        if not receiver_id or not hostel_slug:
+            return Response({"detail": "receiver and hostel are required."}, status=400)
+        if int(receiver_id) == request.user.pk:
+            return Response({"detail": "You cannot request yourself."}, status=400)
+        UserModel = get_user_model()
+        receiver = get_object_or_404(UserModel, pk=receiver_id)
+        hostel   = get_object_or_404(TenantHostel, slug=hostel_slug, is_active=True)
+        req, created = RoommateRequest.objects.get_or_create(
+            sender=request.user, receiver=receiver, hostel=hostel,
+            defaults={"message": message}
+        )
+        if not created:
+            return Response({"detail": "Request already sent."}, status=status.HTTP_409_CONFLICT)
+        notify(
+            receiver,
+            notif_type=NotifType.MSG_DIRECT,
+            title="New roommate request",
+            body=f"{request.user.get_full_name() or request.user.username} wants to be your roommate at {hostel.name}.",
+            link="/dashboard/roommates",
+        )
+        return Response(RoommateRequestSerializer(req).data, status=status.HTTP_201_CREATED)
+
+
+class RoommateRequestDecideView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk, action):
+        if action not in ("accept", "decline"):
+            return Response({"detail": "Invalid action."}, status=400)
+        req = get_object_or_404(RoommateRequest, pk=pk, receiver=request.user)
+        req.status = "accepted" if action == "accept" else "declined"
+        req.save(update_fields=["status"])
+        if req.status == "accepted":
+            notify(
+                req.sender,
+                notif_type=NotifType.MSG_DIRECT,
+                title="Roommate request accepted!",
+                body=f"{request.user.get_full_name() or request.user.username} accepted your roommate request at {req.hostel.name}.",
+                link="/dashboard/roommates",
+            )
+        return Response(RoommateRequestSerializer(req).data)
+
+
+# ===========================================================================
+# Feature 4: Renewal eligibility check
+# ===========================================================================
+
+class RenewalEligibleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from datetime import date, timedelta
+        cutoff = date.today() + timedelta(days=35)
+        booking = (
+            GlobalBooking.objects
+            .filter(student=request.user, payment_status=PaymentStatus.PAID, check_in_date__isnull=False)
+            .select_related("hostel")
+            .prefetch_related("payments")
+            .first()
+        )
+        if not booking or not booking.duration_months:
+            return Response({"eligible": False})
+
+        from datetime import date as _date
+        ci = booking.check_in_date
+        months = booking.duration_months
+        month = ci.month + months
+        year  = ci.year + (month - 1) // 12
+        month = (month - 1) % 12 + 1
+        import calendar
+        day = min(ci.day, calendar.monthrange(year, month)[1])
+        end_date = _date(year, month, day)
+
+        if end_date > cutoff:
+            return Response({"eligible": False})
+
+        return Response({
+            "eligible": True,
+            "booking":  GlobalBookingSerializer(booking).data,
+            "end_date": end_date.isoformat(),
+        })
+
+
+# ── Virtual hostel tour: room-level photos ────────────────────────────────────
+
+class RoomPhotoListView(APIView):
+    """
+    GET  /api/hostels/<slug>/room-photos/           — public
+    POST /api/hostels/<slug>/room-photos/           — manager only (multipart)
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _get_hostel(self, slug):
+        return get_object_or_404(TenantHostel, slug=slug)
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated(), IsManager()]
+
+    def get(self, request, slug):
+        hostel = self._get_hostel(slug)
+        room_type = request.query_params.get("room_type")
+        qs = RoomPhoto.objects.filter(hostel=hostel)
+        if room_type:
+            qs = qs.filter(room_type=room_type)
+        serializer = RoomPhotoSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
+
+    def post(self, request, slug):
+        hostel = self._get_hostel(slug)
+        if hostel.owner != request.user:
+            raise PermissionDenied("You do not own this hostel.")
+        serializer = RoomPhotoSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(hostel=hostel)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RoomPhotoDeleteView(APIView):
+    """DELETE /api/room-photos/<pk>/ — manager only."""
+    permission_classes = [IsAuthenticated, IsManager]
+
+    def delete(self, request, pk):
+        photo = get_object_or_404(RoomPhoto, pk=pk)
+        if photo.hostel.owner != request.user:
+            raise PermissionDenied("You do not own this hostel.")
+        photo.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

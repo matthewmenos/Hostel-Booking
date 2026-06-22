@@ -133,10 +133,10 @@ export default function SearchPage() {
             <select
               value={activeCampus}
               onChange={(e) => { setActiveCampus(e.target.value); triggerLoad(e.target.value); }}
-              className="flex-1 bg-transparent text-white text-sm placeholder-white/60 focus:outline-none appearance-none cursor-pointer"
+              className="flex-1 bg-transparent text-white text-sm focus:outline-none appearance-none cursor-pointer"
               style={{ colorScheme: "dark" }}
             >
-              <option value="" className="text-gray-900">All universities</option>
+              <option value="" className="text-gray-900">Filter by university…</option>
               <optgroup label="Public" className="text-gray-900">
                 {PUBLIC_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
               </optgroup>
@@ -144,6 +144,12 @@ export default function SearchPage() {
                 {PRIVATE_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
               </optgroup>
             </select>
+            {activeCampus && (
+              <button onClick={() => { setActiveCampus(""); triggerLoad(""); }} className="text-white/60 hover:text-white shrink-0" aria-label="Clear university filter">
+                <X size={14} />
+              </button>
+            )}
+            <div className="w-px h-5 bg-white/20 shrink-0" />
             <button
               type="button"
               onClick={() => setShowFilters((v) => !v)}
@@ -196,28 +202,51 @@ export default function SearchPage() {
         {/* Expanded filters */}
         {showFilters && (
           <div className="mt-4 max-w-xl rounded-xl border border-white/20 bg-white/10 p-4 space-y-4 backdrop-blur">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-white/80">Min price (GHS)</label>
-                <input
-                  type="number" min="0"
-                  className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
-                  placeholder="0"
-                  value={minPrice}
-                  onChange={(e) => handlePriceChange("min", e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-white/80">Max price (GHS)</label>
-                <input
-                  type="number" min="0"
-                  className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
-                  placeholder="Any"
-                  value={maxPrice}
-                  onChange={(e) => handlePriceChange("max", e.target.value)}
-                />
+            {/* University */}
+            <div>
+              <p className="mb-2 text-xs font-medium text-white/80">University</p>
+              <select
+                value={activeCampus}
+                onChange={(e) => { setActiveCampus(e.target.value); triggerLoad(e.target.value); }}
+                className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/40"
+                style={{ colorScheme: "dark" }}
+              >
+                <option value="" className="text-gray-900">All universities</option>
+                <optgroup label="Public" className="text-gray-900">
+                  {PUBLIC_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
+                </optgroup>
+                <optgroup label="Private" className="text-gray-900">
+                  {PRIVATE_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
+                </optgroup>
+              </select>
+            </div>
+
+            {/* Price range */}
+            <div>
+              <p className="mb-2 text-xs font-medium text-white/80">Price range (GHS / month)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <input
+                    type="number" min="0"
+                    className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
+                    placeholder="Min"
+                    value={minPrice}
+                    onChange={(e) => handlePriceChange("min", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <input
+                    type="number" min="0"
+                    className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
+                    placeholder="Max"
+                    value={maxPrice}
+                    onChange={(e) => handlePriceChange("max", e.target.value)}
+                  />
+                </div>
               </div>
             </div>
+
+            {/* Amenities */}
             <div>
               <p className="mb-2 text-xs font-medium text-white/80">Amenities</p>
               <div className="flex flex-wrap gap-2">

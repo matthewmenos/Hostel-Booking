@@ -153,38 +153,43 @@ export default function ManagerPortal() {
 
   if (hostels.length === 0) {
     return (
-      <div className="card p-8 text-center">
-        <Building2 className="mx-auto mb-3 text-brand" size={40} />
-        <h1 className="mb-2 text-xl font-bold">No hostels yet</h1>
-        <p className="mb-4 text-gray-500">Create your first hostel listing to get started.</p>
-        <button onClick={() => navigate("/manager/new-hostel")} className="btn-primary">
-          <Plus size={16} /> New Hostel
+      <div className="empty-state py-20">
+        <div className="empty-icon"><Building2 size={24} /></div>
+        <p className="empty-title">No hostels yet</p>
+        <p className="empty-body">Create your first hostel listing to start accepting bookings.</p>
+        <button onClick={() => navigate("/manager/new-hostel")} className="btn-primary btn-sm mt-3">
+          <Plus size={15} /> New hostel
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 animate-fadeInUp">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Manager Portal</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Manager Portal</h1>
+          <p className="mt-0.5 text-sm text-gray-500">Manage your hostels, rooms, bookings, and tenants.</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select className="input flex-1 min-w-0 sm:max-w-xs" value={active ?? ""} onChange={(e) => setActive(e.target.value)}>
-            {hostels.map((h) => <option key={h.slug} value={h.slug}>{h.name}</option>)}
-          </select>
+          {hostels.length > 1 && (
+            <select className="input sm:max-w-xs" value={active ?? ""} onChange={(e) => setActive(e.target.value)}>
+              {hostels.map((h) => <option key={h.slug} value={h.slug}>{h.name}</option>)}
+            </select>
+          )}
           <button onClick={() => navigate("/manager/new-hostel")} className="btn-primary shrink-0 whitespace-nowrap">
-            <Plus size={16} /> New Hostel
+            <Plus size={15} /> New hostel
           </button>
         </div>
       </div>
 
-      {/* Tab bar — scrollable on mobile */}
-      <div className="flex gap-0 border-b border-gray-200 overflow-x-auto scrollbar-none dark:border-gray-700">
+      {/* Tab bar */}
+      <div className="flex gap-0 border-b border-gray-200 dark:border-gray-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`shrink-0 px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
-              ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"}`}>
+            className={`shrink-0 px-3.5 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px
+              ${tab === t.id ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}>
             {t.label}
           </button>
         ))}
@@ -344,13 +349,21 @@ function OverviewTab({ hostels, occupancy, activeHostel, onHostelUpdated }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value }) {
+function StatCard({ icon: Icon, label, value, color = "brand" }) {
+  const colorClass = {
+    brand: "bg-brand/10 text-brand",
+    green: "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
+    amber: "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400",
+    blue:  "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  }[color] ?? "bg-brand/10 text-brand";
   return (
-    <div className="card flex items-center gap-3 p-4">
-      <div className="rounded-lg bg-brand/10 p-2 text-brand"><Icon size={22} /></div>
-      <div>
-        <p className="text-sm text-gray-500">{label}</p>
-        <p className="text-xl font-bold">{value}</p>
+    <div className="card flex items-center gap-4 p-4">
+      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${colorClass}`}>
+        <Icon size={20} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">{label}</p>
+        <p className="text-xl font-bold text-gray-900 dark:text-gray-100 truncate">{value}</p>
       </div>
     </div>
   );
@@ -767,7 +780,13 @@ function BookingsTab({ slug: initialSlug, hostels }) {
       </div>
 
       {loading && <div className="space-y-3">{[1,2,3].map(i=><SkeletonBookingRow key={i}/>)}</div>}
-      {!loading && bookings.length === 0 && <p className="text-gray-500 text-sm">No bookings yet.</p>}
+      {!loading && bookings.length === 0 && (
+        <div className="empty-state py-12">
+          <div className="empty-icon"><BookOpen size={22} /></div>
+          <p className="empty-title">No bookings yet</p>
+          <p className="empty-body">Bookings will appear here once students start reserving beds.</p>
+        </div>
+      )}
 
       <div className="space-y-3">
         {bookings.map((b) => {
@@ -1333,9 +1352,10 @@ function MessagesTab({ hostels, activeSlug }) {
               <span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
             </div>
           ) : reports.length === 0 ? (
-            <div className="card p-8 text-center text-gray-400">
-              <Wrench size={32} className="mx-auto mb-2" />
-              <p className="text-sm">No maintenance reports yet</p>
+            <div className="empty-state py-12">
+              <div className="empty-icon"><Wrench size={22} /></div>
+              <p className="empty-title">No maintenance reports</p>
+              <p className="empty-body">Students with active bookings can submit maintenance reports.</p>
             </div>
           ) : (
             reports.map((r) => (

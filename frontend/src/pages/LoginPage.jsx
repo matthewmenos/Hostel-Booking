@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { Eye, EyeOff, Building2, ArrowRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [form, setForm] = useState({ username: "", password: "" });
+  const navigate   = useNavigate();
+  const location   = useLocation();
+  const [form, setForm]     = useState({ username: "", password: "" });
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [error, setError]   = useState(null);
+  const [busy, setBusy]     = useState(false);
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
@@ -20,28 +20,33 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const user = await login(form.username, form.password);
-      const dest =
-        location.state?.from?.pathname ??
-        (user.role === "superadmin" ? "/admin" : user.role === "manager" ? "/manager" : "/dashboard");
+      const dest = location.state?.from?.pathname
+        ?? (user.role === "superadmin" ? "/admin" : user.role === "manager" ? "/manager" : "/dashboard");
       navigate(dest, { replace: true });
     } catch {
-      setError("Invalid username or password. Please try again.");
+      setError("Incorrect username or password. Please try again.");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-sm">
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold">Welcome back</h1>
-        <p className="mt-1 text-sm text-gray-500">Sign in to your HostelHub account</p>
+    <div className="mx-auto max-w-sm py-8 animate-fadeInUp">
+      {/* Brand mark */}
+      <div className="mb-8 flex flex-col items-center gap-3 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-white shadow-lg">
+          <Building2 size={26} />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">Welcome back</h1>
+          <p className="mt-1 text-sm text-gray-500">Sign in to your HostelHub account</p>
+        </div>
       </div>
 
-      <form onSubmit={submit} className="card space-y-4 p-6">
+      <form onSubmit={submit} className="card p-6 space-y-4">
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
+          <div className="alert-error text-sm">
+            <span>{error}</span>
           </div>
         )}
 
@@ -50,6 +55,7 @@ export default function LoginPage() {
           <input
             className="input"
             autoComplete="username"
+            placeholder="your_username"
             value={form.username}
             onChange={set("username")}
             required
@@ -57,9 +63,9 @@ export default function LoginPage() {
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-1.5">
             <label className="label mb-0">Password</label>
-            <Link to="/forgot-password" className="text-xs text-brand hover:underline">
+            <Link to="/forgot-password" className="text-xs font-medium text-brand hover:underline">
               Forgot password?
             </Link>
           </div>
@@ -68,6 +74,7 @@ export default function LoginPage() {
               type={showPw ? "text" : "password"}
               className="input pr-10"
               autoComplete="current-password"
+              placeholder="••••••••"
               value={form.password}
               onChange={set("password")}
               required
@@ -76,28 +83,33 @@ export default function LoginPage() {
               type="button"
               tabIndex={-1}
               onClick={() => setShowPw((v) => !v)}
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600">
-              {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600"
+            >
+              {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
             </button>
           </div>
         </div>
 
-        <button className="btn-primary w-full flex items-center justify-center gap-2" disabled={busy}>
+        <button
+          type="submit"
+          className="btn-primary w-full mt-1"
+          disabled={busy}
+        >
           {busy ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
-            <LogIn size={16} />
+            <ArrowRight size={16} />
           )}
           {busy ? "Signing in…" : "Sign in"}
         </button>
-
-        <p className="text-center text-sm text-gray-500">
-          No account?{" "}
-          <Link to="/register" className="font-medium text-brand hover:underline">
-            Create one
-          </Link>
-        </p>
       </form>
+
+      <p className="mt-5 text-center text-sm text-gray-500">
+        Don't have an account?{" "}
+        <Link to="/register" className="font-semibold text-brand hover:underline">
+          Create one free
+        </Link>
+      </p>
     </div>
   );
 }

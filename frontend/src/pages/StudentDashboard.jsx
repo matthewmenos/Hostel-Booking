@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone, Clock, UserPlus, Heart, RefreshCw, BarChart3 } from "lucide-react";
+import { ExternalLink, Download, Wrench, Landmark, GraduationCap, CheckCircle2, MessageSquare, Users, Megaphone, Clock, UserPlus, Heart, RefreshCw, BarChart3, BedDouble } from "lucide-react";
 import { bookingApi, authApi, notifApi, tenantApi, waitlistApi, roommateApi, renewalApi } from "../api/endpoints.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useToast } from "../context/ToastContext.jsx";
@@ -63,29 +63,39 @@ export default function StudentDashboard() {
   const setTab = (t) => navigate(`/dashboard/${t}`, { replace: true });
 
   return (
-    <div>
-      <h1 className="mb-1 text-2xl font-bold">Welcome, {user?.first_name || user?.username}</h1>
-      <p className="mb-5 text-gray-500">Manage your bookings and account details.</p>
+    <div className="space-y-5 animate-fadeInUp">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+          Welcome back, {user?.first_name || user?.username}
+        </h1>
+        <p className="mt-0.5 text-sm text-gray-500">Manage your bookings, profile, and more.</p>
+      </div>
 
-      {/* Tab bar */}
-      <div className="mb-5 flex gap-0 border-b border-gray-200 overflow-x-auto scrollbar-none">
+      {/* Scrollable tab bar */}
+      <div className="flex gap-0 border-b border-gray-200 dark:border-gray-700 overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`shrink-0 px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
-              ${tab === t.id ? "border-b-2 border-brand text-brand" : "text-gray-500 hover:text-gray-700"}`}>
+            className={`shrink-0 px-3.5 py-2.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px
+              ${tab === t.id
+                ? "border-brand text-brand"
+                : "border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === "bookings"      && <BookingsTab />}
-      {tab === "waitlist"      && <WaitlistTab />}
-      {tab === "roommates"     && <RoommatesTab />}
-      {tab === "renewal"       && <RenewalTab />}
-      {tab === "groups"        && <GroupsPreviewTab />}
-      {tab === "announcements" && <AnnouncementsTab />}
-      {tab === "report"        && <ReportTab />}
-      {tab === "profile"       && <ProfileTab />}
+      {/* Tab content */}
+      <div>
+        {tab === "bookings"      && <BookingsTab />}
+        {tab === "waitlist"      && <WaitlistTab />}
+        {tab === "roommates"     && <RoommatesTab />}
+        {tab === "renewal"       && <RenewalTab />}
+        {tab === "groups"        && <GroupsPreviewTab />}
+        {tab === "announcements" && <AnnouncementsTab />}
+        {tab === "report"        && <ReportTab />}
+        {tab === "profile"       && <ProfileTab />}
+      </div>
     </div>
   );
 }
@@ -225,7 +235,14 @@ function BookingsTab() {
   };
 
   if (loading) return <div className="space-y-3">{[1,2,3].map(i=><SkeletonBookingRow key={i}/>)}</div>;
-  if (bookings.length === 0) return <p className="text-gray-500">You have no bookings yet.</p>;
+  if (bookings.length === 0) return (
+    <div className="empty-state py-16">
+      <div className="empty-icon"><BedDouble size={24} /></div>
+      <p className="empty-title">No bookings yet</p>
+      <p className="empty-body">Find a hostel and book a bed to get started.</p>
+      <button onClick={() => navigate("/")} className="btn-primary btn-sm mt-3">Browse hostels</button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
@@ -287,9 +304,11 @@ function ProfileTab() {
   };
 
   return (
-    <form onSubmit={submit} className="card w-full max-w-lg space-y-4 p-4 sm:p-6">
-      <h2 className="font-semibold text-lg">Personal details</h2>
-      <p className="text-sm text-gray-500 -mt-2">Username and email cannot be changed here.</p>
+    <form onSubmit={submit} className="card w-full max-w-lg space-y-4 p-5 sm:p-6">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Personal details</h2>
+        <p className="text-sm text-gray-500 mt-0.5">Username and email cannot be changed here.</p>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
@@ -391,36 +410,38 @@ function ReportTab() {
   );
 
   if (!activeBooking) return (
-    <div className="card p-8 text-center space-y-3 text-gray-400">
-      <Wrench size={36} className="mx-auto" />
-      <p className="text-sm">You need an active booking to report an issue.</p>
-      <p className="text-xs">Reports are automatically sent to the manager of your booked hostel.</p>
+    <div className="empty-state py-14">
+      <div className="empty-icon"><Wrench size={24} /></div>
+      <p className="empty-title">No active booking</p>
+      <p className="empty-body">You need an approved booking to report an issue. Reports go directly to your hostel manager.</p>
     </div>
   );
 
   if (done) return (
-    <div className="card p-8 text-center space-y-3">
+    <div className="card p-10 text-center space-y-4">
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
         <CheckCircle2 size={36} className="text-green-600 dark:text-green-400" />
       </div>
-      <h3 className="font-bold text-lg">Report Submitted</h3>
-      <p className="text-gray-500 text-sm">
-        Your report has been sent to the manager of <strong>{activeBooking.hostel_name}</strong>.
-        They will look into it shortly.
-      </p>
-      <button className="btn-primary" onClick={() => setDone(false)}>Submit another</button>
+      <div>
+        <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Report Submitted</h3>
+        <p className="mt-1 text-sm text-gray-500">
+          Your report has been sent to the manager of <strong>{activeBooking.hostel_name}</strong>. They will look into it shortly.
+        </p>
+      </div>
+      <button className="btn-primary btn-sm" onClick={() => setDone(false)}>Submit another</button>
     </div>
   );
 
   return (
-    <form onSubmit={handleSubmit} className="card w-full p-4 sm:p-6 space-y-4 max-w-lg">
-      <div className="flex items-center gap-2 mb-1">
-        <Wrench size={18} className="text-brand" />
-        <h3 className="font-semibold">Report a Maintenance Issue</h3>
+    <form onSubmit={handleSubmit} className="card w-full p-5 sm:p-6 space-y-4 max-w-lg">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <Wrench size={18} className="text-brand shrink-0" /> Report a Maintenance Issue
+        </h3>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Reporting to: <span className="font-medium text-gray-700 dark:text-gray-300">{activeBooking.hostel_name}</span>
+        </p>
       </div>
-      <p className="text-sm text-gray-500">
-        Reporting to: <span className="font-medium text-gray-700 dark:text-gray-300">{activeBooking.hostel_name}</span>
-      </p>
 
       <div>
         <label className="label">Issue Title</label>
@@ -463,10 +484,10 @@ function GroupsPreviewTab() {
   );
 
   if (rooms.length === 0) return (
-    <div className="flex flex-col items-center gap-3 py-20 text-gray-400 text-center">
-      <MessageSquare size={40} />
-      <p className="font-medium text-gray-600">No groups yet</p>
-      <p className="text-sm max-w-xs">Your roommate and hostel groups will appear here once your booking is approved.</p>
+    <div className="empty-state py-16">
+      <div className="empty-icon"><MessageSquare size={24} /></div>
+      <p className="empty-title">No groups yet</p>
+      <p className="empty-body">Your roommate and hostel groups will appear here once your booking is approved.</p>
     </div>
   );
 
@@ -560,13 +581,13 @@ function AnnouncementsTab() {
   );
 
   if (!announcements.length) return (
-    <div className="flex flex-col items-center gap-3 py-20 text-gray-400 text-center">
-      <Megaphone size={40} />
-      <p className="font-medium text-gray-600">No announcements yet</p>
-      <p className="text-sm max-w-xs">
+    <div className="empty-state py-16">
+      <div className="empty-icon"><Megaphone size={24} /></div>
+      <p className="empty-title">No announcements yet</p>
+      <p className="empty-body">
         {hostelName
           ? `${hostelName} hasn't posted any announcements yet.`
-          : "You don't have an approved booking. Announcements appear here once your booking is approved."}
+          : "Announcements from your hostel will appear here once your booking is approved."}
       </p>
     </div>
   );
@@ -618,11 +639,11 @@ function WaitlistTab() {
   if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
 
   if (entries.length === 0) return (
-    <div className="card p-10 text-center space-y-3 text-gray-400">
-      <Clock size={40} className="mx-auto opacity-50" />
-      <p className="font-medium text-gray-600 dark:text-gray-300">No active waitlists</p>
-      <p className="text-sm">When a hostel room type is full, you can join the waitlist from its page.</p>
-      <button onClick={() => navigate("/")} className="btn-primary px-5 py-2 mt-1">Browse Hostels</button>
+    <div className="empty-state py-16">
+      <div className="empty-icon"><Clock size={24} /></div>
+      <p className="empty-title">No active waitlists</p>
+      <p className="empty-body">When a room type is fully booked, you can join the waitlist from the hostel page. We'll notify you when a bed opens up.</p>
+      <button onClick={() => navigate("/")} className="btn-primary btn-sm mt-3">Browse hostels</button>
     </div>
   );
 
@@ -724,19 +745,19 @@ function RoommatesTab() {
   if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
 
   if (!profile && !editMode) return (
-    <div className="card p-10 text-center space-y-3 text-gray-400">
-      <Users size={40} className="mx-auto opacity-50" />
-      <p className="font-medium text-gray-600 dark:text-gray-300">Find a compatible roommate</p>
-      <p className="text-sm">Create a profile so other students at your hostel can find you.</p>
+    <div className="empty-state py-16">
+      <div className="empty-icon"><Users size={24} /></div>
+      <p className="empty-title">Find a compatible roommate</p>
+      <p className="empty-body">Create a profile so other students at your hostel can connect with you.</p>
       {activeHostelSlug
-        ? <button onClick={() => { setForm((f) => ({ ...f, hostel: activeHostelSlug })); setEditMode(true); }} className="btn-primary px-5 py-2">Create Profile</button>
-        : <p className="text-xs text-amber-500">You need an approved booking first.</p>}
+        ? <button onClick={() => { setForm((f) => ({ ...f, hostel: activeHostelSlug })); setEditMode(true); }} className="btn-primary btn-sm mt-3">Create profile</button>
+        : <p className="mt-3 text-xs text-amber-500 font-medium">You need an approved booking first.</p>}
     </div>
   );
 
   if (editMode) return (
-    <form onSubmit={saveProfile} className="card p-5 space-y-4 max-w-lg">
-      <h2 className="font-semibold text-lg">Your Roommate Profile</h2>
+    <form onSubmit={saveProfile} className="card p-5 sm:p-6 space-y-4 max-w-lg">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Your Roommate Profile</h2>
       <div><label className="label">Course of study</label><input className="input" value={form.course} onChange={(e) => setForm((f) => ({ ...f, course: e.target.value }))} /></div>
       <div><label className="label">Year of study</label><input type="number" min={1} max={8} className="input" value={form.year_of_study} onChange={(e) => setForm((f) => ({ ...f, year_of_study: e.target.value }))} /></div>
       <div><label className="label">Sleep schedule</label>
@@ -845,10 +866,10 @@ function RenewalTab() {
   if (loading) return <div className="flex justify-center py-16"><span className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
 
   if (!data?.eligible) return (
-    <div className="card p-10 text-center space-y-3 text-gray-400">
-      <RefreshCw size={40} className="mx-auto opacity-50" />
-      <p className="font-medium text-gray-600 dark:text-gray-300">No renewal needed yet</p>
-      <p className="text-sm">This tab shows a renewal prompt when your current stay ends within 35 days.</p>
+    <div className="empty-state py-16">
+      <div className="empty-icon"><RefreshCw size={24} /></div>
+      <p className="empty-title">No renewal needed yet</p>
+      <p className="empty-body">A renewal prompt will appear here when your stay is within 35 days of ending.</p>
     </div>
   );
 

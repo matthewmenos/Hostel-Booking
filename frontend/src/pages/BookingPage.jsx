@@ -88,7 +88,7 @@ export default function BookingPage() {
       const detail = err.response?.data?.detail ?? "Booking failed. Please try again.";
       // 409 = student already has an active booking
       if (err.response?.status === 409) {
-        addToast("error", detail);
+        addToast("error", detail || "You already have an active booking. Check your dashboard.");
         navigate("/dashboard/bookings");
         return;
       }
@@ -160,13 +160,18 @@ export default function BookingPage() {
 
         {/* Duration */}
         <div>
-          <label className="label flex items-center gap-2"><Clock size={14} className="text-brand" /> Duration</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="label mb-0 flex items-center gap-2"><Clock size={14} className="text-brand" /> Duration</label>
+            {minMonths > 1 && (
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Min {minMonths} month{minMonths > 1 ? "s" : ""}</span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => setMonths((m) => Math.max(minMonths, m - 1))} disabled={months <= minMonths}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-600 text-lg font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40">−</button>
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-600 text-lg font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-30">−</button>
             <span className="w-12 text-center text-xl font-bold text-gray-900 dark:text-gray-100">{months}</span>
             <button type="button" onClick={() => setMonths((m) => Math.min(12, m + 1))} disabled={months >= 12}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-600 text-lg font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40">+</button>
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 dark:border-gray-600 text-lg font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-30">+</button>
             <span className="text-sm text-gray-500">month{months > 1 ? "s" : ""}</span>
           </div>
         </div>
@@ -184,12 +189,14 @@ export default function BookingPage() {
         </div>
 
         <button type="submit" disabled={submitting}
-          className="btn-primary w-full py-3 text-base disabled:opacity-60">
-          {submitting ? "Processing…" : <><ChevronRight size={18} /> Confirm &amp; Pay</>}
+          className="btn-primary w-full py-3 text-base disabled:opacity-60 flex items-center justify-center gap-2">
+          {submitting
+            ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> Processing…</>
+            : <><ChevronRight size={18} /> Confirm &amp; Pay</>}
         </button>
 
         <p className="text-center text-xs text-gray-400">
-          You'll be redirected to Paystack to complete payment securely.
+          Clicking "Confirm &amp; Pay" will open Paystack in this tab to complete your payment securely. Your bed is held for 30 minutes.
         </p>
       </form>
     </div>

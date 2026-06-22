@@ -465,6 +465,10 @@ function BedManager({ slug, room, cap, onRefresh }) {
   const { addToast } = useToast();
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [vacating, setVacating] = useState(null);
+  const [confirmVacate, setConfirmVacate] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const occupiedBeds = room.beds.filter((b) => b.is_occupied);
 
@@ -477,13 +481,14 @@ function BedManager({ slug, room, cap, onRefresh }) {
   };
 
   const vacateBed = async (bedId) => {
+    setVacating(bedId);
     try {
       await tenantApi.vacateBed(slug, bedId);
       await onRefresh();
       addToast("success", "Bed marked as vacant.");
     } catch {
       addToast("error", "Could not vacate bed.");
-    }
+    } finally { setVacating(null); setConfirmVacate(null); }
   };
 
   const bulkVacate = async () => {
@@ -502,72 +507,93 @@ function BedManager({ slug, room, cap, onRefresh }) {
   };
 
   const deleteBed = async (bedId) => {
+    setDeleting(bedId);
     try {
       await tenantApi.deleteBed(slug, bedId);
       await onRefresh();
       addToast("success", "Bed removed.");
     } catch {
       addToast("error", "Could not remove bed.");
-    }
+    } finally { setDeleting(null); setConfirmDelete(null); }
   };
 
   return (
-    <div className="ml-2 sm:ml-4 mb-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
+    <div className="ml-2 sm:ml-4 mb-3 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <p className="text-xs text-gray-400">
           {room.beds.length}/{cap} beds · {room.beds.filter(b => b.is_occupied).length} occupied
         </p>
         {selected.size > 0 && (
-          <button
-            onClick={bulkVacate}
-            disabled={bulkLoading}
-            className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-2.5 py-1 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition disabled:opacity-60"
-          >
+          <button onClick={bulkVacate} disabled={bulkLoading}
+            className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-2.5 py-1 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition disabled:opacity-60">
             {bulkLoading ? "Vacating…" : `Vacate ${selected.size} selected`}
           </button>
         )}
         {occupiedBeds.length > 1 && selected.size === 0 && (
-          <button
-            onClick={() => setSelected(new Set(occupiedBeds.map((b) => b.id)))}
-            className="text-xs text-gray-400 hover:text-gray-600 underline"
-          >
+          <button onClick={() => setSelected(new Set(occupiedBeds.map((b) => b.id)))}
+            className="text-xs text-gray-400 hover:text-gray-600 underline">
             Select all occupied
           </button>
         )}
       </div>
       {room.beds.map((bed) => (
-        <div key={bed.id} className="flex items-center justify-between rounded bg-white dark:bg-gray-800 px-3 py-2 text-sm shadow-sm gap-2">
-          <span className="flex items-center gap-2 min-w-0">
-            {bed.is_occupied && (
-              <input
-                type="checkbox"
-                checked={selected.has(bed.id)}
-                onChange={() => toggleSelect(bed.id)}
-                className="rounded border-gray-300 text-brand focus:ring-brand shrink-0"
-              />
-            )}
-            <BedDouble size={14} className="shrink-0 text-gray-400" />
-            <span className="font-medium truncate">{bed.bed_label}</span>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium
-              ${bed.is_occupied
-                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
-              {bed.is_occupied ? "Occupied" : "Vacant"}
+        <div key={bed.id} className="rounded-lg bg-white dark:bg-gray-800 px-3 py-2 shadow-sm space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 min-w-0 text-sm">
+              {bed.is_occupied && (
+                <input type="checkbox" checked={selected.has(bed.id)} onChange={() => toggleSelect(bed.id)}
+                  className="rounded border-gray-300 text-brand focus:ring-brand shrink-0" />
+              )}
+              <BedDouble size={14} className="shrink-0 text-gray-400" />
+              <span className="font-medium truncate">{bed.bed_label}</span>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium
+                ${bed.is_occupied
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}`}>
+                {bed.is_occupied ? "Occupied" : "Vacant"}
+              </span>
             </span>
-          </span>
-          <div className="flex items-center gap-2 shrink-0">
-            {bed.is_occupied ? (
-              <button
-                onClick={() => vacateBed(bed.id)}
-                className="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 rounded px-2 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/20"
-              >
-                Vacate
-              </button>
-            ) : (
-              <button onClick={() => deleteBed(bed.id)} className="text-gray-400 hover:text-red-500" title="Remove bed">
-                <Trash2 size={14} />
-              </button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {bed.is_occupied ? (
+                confirmVacate === bed.id ? (
+                  <>
+                    <span className="text-xs text-gray-500">Mark vacant?</span>
+                    <button onClick={() => vacateBed(bed.id)} disabled={vacating === bed.id}
+                      className="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60">
+                      {vacating === bed.id ? "…" : "Yes"}
+                    </button>
+                    <button onClick={() => setConfirmVacate(null)}
+                      className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
+                      No
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmVacate(bed.id)}
+                    className="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 rounded-lg px-2 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/20">
+                    Vacate
+                  </button>
+                )
+              ) : (
+                confirmDelete === bed.id ? (
+                  <>
+                    <span className="text-xs text-gray-500">Remove bed?</span>
+                    <button onClick={() => deleteBed(bed.id)} disabled={deleting === bed.id}
+                      className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-60">
+                      {deleting === bed.id ? "…" : "Yes"}
+                    </button>
+                    <button onClick={() => setConfirmDelete(null)}
+                      className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
+                      No
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmDelete(bed.id)} aria-label="Remove bed"
+                    className="text-gray-400 hover:text-red-500 transition">
+                    <Trash2 size={14} />
+                  </button>
+                )
+              )}
+            </div>
           </div>
         </div>
       ))}
@@ -614,52 +640,72 @@ function GalleryTab({ slug }) {
     }
   };
 
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+
   const remove = async (id) => {
+    setDeleting(id);
     try {
       await hostelApi.deleteImage(id);
       setImages((prev) => prev.filter((img) => img.id !== id));
       addToast("success", "Image removed.");
     } catch {
       addToast("error", "Could not remove image.");
-    }
+    } finally { setDeleting(null); setConfirmDelete(null); }
   };
 
   return (
     <div className="space-y-5">
       <div className="card p-5 space-y-3">
         <h2 className="font-semibold text-lg flex items-center gap-2"><Image size={18}/> Upload Gallery Photo</h2>
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div>
-            <label className="label">Caption (optional)</label>
-            <input className="input" placeholder="e.g. Common room" value={caption}
+            <label className="label">Caption <span className="text-gray-400 font-normal">(optional)</span></label>
+            <input className="input" placeholder="e.g. Common room, entrance, bathroom…" value={caption}
               onChange={(e) => setCaption(e.target.value)} />
           </div>
-          <label className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-6 text-sm text-gray-500 hover:border-brand hover:text-brand transition ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
-            <Upload size={18} />
-            {uploading ? "Uploading…" : "Click to select a photo"}
+          <label className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-8 text-sm text-gray-400 hover:border-brand hover:text-brand transition ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+            <Upload size={22} />
+            {uploading ? "Uploading…" : <><span className="font-medium text-gray-600 dark:text-gray-300">Click to choose a photo</span><span className="text-xs">JPG, PNG or WEBP</span></>}
             <input type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
           </label>
         </div>
       </div>
 
       {loading && <p className="text-sm text-gray-400">Loading gallery…</p>}
-
       {!loading && images.length === 0 && (
-        <p className="text-sm text-gray-400">No gallery images yet. Upload your first photo above.</p>
+        <div className="empty-state py-10">
+          <div className="empty-icon"><Image size={22} /></div>
+          <p className="empty-title">No gallery photos yet</p>
+          <p className="empty-body">Upload photos to show students what your hostel looks like.</p>
+        </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {images.map((img) => (
           <div key={img.id} className="card overflow-hidden group relative">
             <img src={img.image} alt={img.caption || "Gallery"} className="h-40 w-full object-cover" />
-            {img.caption && (
-              <p className="p-2 text-xs text-gray-500 dark:text-gray-400">{img.caption}</p>
+            {img.caption && <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{img.caption}</p>}
+            {confirmDelete === img.id ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white p-3">
+                <p className="text-xs font-semibold text-center">Remove this photo?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => remove(img.id)} disabled={deleting === img.id}
+                    className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold hover:bg-red-600 disabled:opacity-60">
+                    {deleting === img.id ? "Removing…" : "Yes, remove"}
+                  </button>
+                  <button onClick={() => setConfirmDelete(null)}
+                    className="rounded-lg border border-white/40 px-3 py-1.5 text-xs hover:bg-white/20">
+                    Keep
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDelete(img.id)} aria-label="Remove image"
+                className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white opacity-0 group-hover:opacity-100 transition hover:bg-red-600">
+                <X size={13} />
+              </button>
             )}
-            <button
-              onClick={() => remove(img.id)}
-              className="absolute right-2 top-2 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 transition hover:bg-red-600">
-              <X size={14} />
-            </button>
           </div>
         ))}
       </div>
@@ -699,52 +745,80 @@ function AnnouncementsTab({ slug }) {
     }
   };
 
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+
   const remove = async (id) => {
+    setDeleting(id);
     try {
       await tenantApi.deleteAnnouncement(slug, id);
       setAnnouncements((prev) => prev.filter((a) => a.id !== id));
       addToast("success", "Announcement deleted.");
     } catch {
       addToast("error", "Could not delete announcement.");
-    }
+    } finally { setDeleting(null); setConfirmDel(null); }
   };
 
   return (
     <div className="space-y-4">
       <div className="card p-5 space-y-3">
         <h2 className="font-semibold text-lg flex items-center gap-2"><Megaphone size={18}/> Post Announcement</h2>
+        <p className="text-sm text-gray-500 -mt-1">All students with active bookings at this hostel will be notified.</p>
         <form onSubmit={post} className="space-y-3">
           <div>
             <label className="label">Title</label>
-            <input className="input" value={form.title} onChange={(e) => setForm({...form, title: e.target.value})} required />
+            <input className="input" placeholder="e.g. Water outage on Friday" value={form.title} onChange={(e) => setForm({...form, title: e.target.value})} required />
           </div>
           <div>
             <label className="label">Message</label>
-            <textarea rows={3} className="input resize-none" value={form.body}
+            <textarea rows={3} className="input resize-none" placeholder="Provide more details here…" value={form.body}
               onChange={(e) => setForm({...form, body: e.target.value})} required />
           </div>
-          <button className="btn-primary" disabled={busy}>{busy ? "Posting…" : "Post"}</button>
+          <button className="btn-primary" disabled={busy}>
+            {busy ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> Posting…</> : <><Megaphone size={14}/> Post announcement</>}
+          </button>
         </form>
       </div>
 
       {loading && <p className="text-gray-500 text-sm">Loading…</p>}
       {!loading && announcements.length === 0 && (
-        <p className="text-gray-500 text-sm">No announcements yet.</p>
+        <div className="empty-state py-10">
+          <div className="empty-icon"><Megaphone size={22} /></div>
+          <p className="empty-title">No announcements yet</p>
+          <p className="empty-body">Post an announcement to notify all your tenants at once.</p>
+        </div>
       )}
       <div className="space-y-3">
         {announcements.map((a) => (
           <div key={a.id} className="card p-4">
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <p className="font-semibold">{a.title}</p>
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{a.body}</p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">{a.body}</p>
                 <p className="mt-2 text-xs text-gray-400">
                   {new Date(a.created_at).toLocaleDateString("en-GH", { day:"numeric", month:"short", year:"numeric" })}
                 </p>
               </div>
-              <button onClick={() => remove(a.id)} className="shrink-0 text-gray-400 hover:text-red-500">
-                <Trash2 size={16}/>
-              </button>
+              <div className="shrink-0">
+                {confirmDel === a.id ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Delete?</span>
+                    <button onClick={() => remove(a.id)} disabled={deleting === a.id}
+                      className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-red-600 disabled:opacity-60">
+                      {deleting === a.id ? "…" : "Yes"}
+                    </button>
+                    <button onClick={() => setConfirmDel(null)}
+                      className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDel(a.id)} aria-label="Delete announcement"
+                    className="text-gray-400 hover:text-red-500 transition p-1">
+                    <Trash2 size={15}/>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}

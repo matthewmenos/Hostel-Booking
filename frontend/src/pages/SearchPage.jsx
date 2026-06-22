@@ -29,6 +29,58 @@ const AMENITY_FILTERS = [
 
 const ALL_UNIVERSITIES = [...PUBLIC_UNIVERSITIES, ...PRIVATE_UNIVERSITIES];
 
+function UniversityFilterGroup({ activeCampus, onChange }) {
+  const [tab, setTab] = useState(() =>
+    PRIVATE_UNIVERSITIES.some((u) => u.value === activeCampus) ? "private" : "public"
+  );
+
+  const list = tab === "public" ? PUBLIC_UNIVERSITIES : PRIVATE_UNIVERSITIES;
+
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-white/80">University</p>
+
+      {/* Public / Private tab toggle */}
+      <div className="mb-3 flex rounded-lg overflow-hidden border border-white/25 w-fit">
+        {[{ v: "public", label: "Public" }, { v: "private", label: "Private" }].map(({ v, label }) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setTab(v)}
+            className={`px-4 py-1.5 text-xs font-medium transition
+              ${tab === v ? "bg-white text-brand" : "text-white/70 hover:text-white hover:bg-white/15"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* University pills */}
+      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition
+            ${activeCampus === "" ? "bg-white text-brand shadow-sm" : "bg-white/15 text-white hover:bg-white/25"}`}
+        >
+          All
+        </button>
+        {list.map((u) => (
+          <button
+            key={u.value}
+            type="button"
+            onClick={() => onChange(activeCampus === u.value ? "" : u.value)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition text-left
+              ${activeCampus === u.value ? "bg-white text-brand shadow-sm" : "bg-white/15 text-white hover:bg-white/25"}`}
+          >
+            {u.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function SearchPage() {
   const navigate = useNavigate();
   const { compared, toggle, isCompared } = useCompare();
@@ -203,23 +255,7 @@ export default function SearchPage() {
         {showFilters && (
           <div className="mt-4 max-w-xl rounded-xl border border-white/20 bg-white/10 p-4 space-y-4 backdrop-blur">
             {/* University */}
-            <div>
-              <p className="mb-2 text-xs font-medium text-white/80">University</p>
-              <select
-                value={activeCampus}
-                onChange={(e) => { setActiveCampus(e.target.value); triggerLoad(e.target.value); }}
-                className="w-full rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/40"
-                style={{ colorScheme: "dark" }}
-              >
-                <option value="" className="text-gray-900">All universities</option>
-                <optgroup label="Public" className="text-gray-900">
-                  {PUBLIC_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
-                </optgroup>
-                <optgroup label="Private" className="text-gray-900">
-                  {PRIVATE_UNIVERSITIES.map((u) => <option key={u.value} value={u.value} className="text-gray-900">{u.label}</option>)}
-                </optgroup>
-              </select>
-            </div>
+            <UniversityFilterGroup activeCampus={activeCampus} onChange={(v) => { setActiveCampus(v); triggerLoad(v); }} />
 
             {/* Price range */}
             <div>
